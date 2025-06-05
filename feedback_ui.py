@@ -379,12 +379,21 @@ class FeedbackUI(QMainWindow):
         script_dir = os.path.dirname(os.path.abspath(__file__))
         icon_path = os.path.join(script_dir, "images", "feedback.png")
         self.setWindowIcon(QIcon(icon_path))
-        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
-        
+
         # 设置默认窗口大小
         self.resize(*self.default_size)
-        
+
         self.settings = QSettings("InteractiveFeedbackMCP", "InteractiveFeedbackMCP")
+
+        # 根据设置决定是否启用窗口置顶
+        self.settings.beginGroup("MainWindow_General")
+        stay_on_top_enabled = self.settings.value("stay_on_top_enabled", True, type=bool)
+        self.settings.endGroup()
+
+        if stay_on_top_enabled:
+            self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+        else:
+            self.setWindowFlags(self.windowFlags() & ~Qt.WindowStaysOnTopHint)
         
         # Load general UI settings for the main window (geometry, state)
         self.settings.beginGroup("MainWindow_General")
@@ -809,10 +818,41 @@ class FeedbackUI(QMainWindow):
         info_label.setStyleSheet("color: gray; font-size: 11px;")
         auto_submit_layout.addWidget(info_label)
 
+        # 窗口置顶设置部分
+        stay_on_top_group = QGroupBox("窗口置顶设置")
+        stay_on_top_layout = QVBoxLayout(stay_on_top_group)
+
+        # 启动时置顶的勾选框
+        self.stay_on_top_check = QCheckBox("启动时窗口置顶")
+        # 从设置中读取置顶选项
+        self.settings.beginGroup("MainWindow_General")
+        stay_on_top_enabled = self.settings.value("stay_on_top_enabled", True, type=bool)
+        self.stay_on_top_check.setChecked(stay_on_top_enabled)
+        self.settings.endGroup()
+
+        self.stay_on_top_check.stateChanged.connect(self._update_stay_on_top_setting)
+        stay_on_top_layout.addWidget(self.stay_on_top_check)
+
+        # 立即切换置顶状态的按钮
+        toggle_top_button = QPushButton("切换窗口置顶状态")
+        toggle_top_button.clicked.connect(self._toggle_stay_on_top)
+        toggle_top_button.setMinimumWidth(200)
+        toggle_top_button.setMinimumHeight(40)
+        toggle_top_button.setAutoFillBackground(True)
+        toggle_top_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        stay_on_top_layout.addWidget(toggle_top_button)
+
+        # 说明文字
+        stay_on_top_info = QLabel("启用后，每次启动时窗口将自动置顶。\n也可以使用按钮立即切换当前窗口的置顶状态。")
+        stay_on_top_info.setWordWrap(True)
+        stay_on_top_info.setStyleSheet("color: gray; font-size: 11px;")
+        stay_on_top_layout.addWidget(stay_on_top_info)
+
         # 将分组添加到设置布局
         settings_layout.addWidget(size_group)
         settings_layout.addWidget(position_group)
         settings_layout.addWidget(auto_submit_group)
+        settings_layout.addWidget(stay_on_top_group)
         settings_layout.addStretch()
         
         # 添加设置选项卡
@@ -1226,6 +1266,10 @@ class FeedbackUI(QMainWindow):
         self.settings.setValue("auto_submit_enabled", self.auto_submit_enabled)
         self.settings.setValue("auto_submit_wait_time", self.auto_submit_wait_time)
 
+        # 保存窗口置顶设置
+        if hasattr(self, 'stay_on_top_check'):
+            self.settings.setValue("stay_on_top_enabled", self.stay_on_top_check.isChecked())
+
         self.settings.endGroup()
 
         # 保存当前选中的选项卡索引
@@ -1349,6 +1393,34 @@ class FeedbackUI(QMainWindow):
 
         # 执行提交
         self._submit_feedback()
+
+    def _update_stay_on_top_setting(self, state):
+        """更新窗口置顶设置"""
+        is_checked = (state == Qt.Checked)
+        self.settings.beginGroup("MainWindow_General")
+        self.settings.setValue("stay_on_top_enabled", is_checked)
+        self.settings.endGroup()
+
+        # 显示状态更改提示
+        status_message = "已启用启动时窗口置顶" if is_checked else "已禁用启动时窗口置顶"
+        self._show_status_message(status_message)
+
+    def _toggle_stay_on_top(self):
+        """切换窗口置顶状态"""
+        current_flags = self.windowFlags()
+        if current_flags & Qt.WindowStaysOnTopHint:
+            # 当前是置顶状态，取消置顶
+            new_flags = current_flags & ~Qt.WindowStaysOnTopHint
+            self.setWindowFlags(new_flags)
+            self._show_status_message("已取消窗口置顶")
+        else:
+            # 当前不是置顶状态，设置置顶
+            new_flags = current_flags | Qt.WindowStaysOnTopHint
+            self.setWindowFlags(new_flags)
+            self._show_status_message("已设置窗口置顶")
+
+        # 重新显示窗口（setWindowFlags会隐藏窗口）
+        self.show()
     
     def _reset_window_position(self):
         """重置窗口位置到屏幕右下角"""
