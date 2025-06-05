@@ -340,13 +340,6 @@ class FeedbackUI(QMainWindow):
         # 初始化上传图片路径列表
         self.uploaded_images = []
         
-        # 自动提交相关属性
-        self.auto_submit_enabled = False
-        self.auto_submit_wait_time = 60  # 默认等待时间60秒
-        self.auto_submit_timer = None
-        self.countdown_seconds = 0
-        self.submit_button = None  # 将在_create_ui中设置
-        
         # 窗口状态记录（用于记录显示/隐藏终端时的窗口状态）
         self.window_state_with_terminal = None  # 存储终端显示时的窗口大小和位置
         self.window_state_without_terminal = None  # 存储终端隐藏时的窗口大小和位置
@@ -409,10 +402,6 @@ class FeedbackUI(QMainWindow):
         # 如果没有保存的快捷回复，使用默认值
         if not self.quick_replies:
             self.quick_replies = ["继续", "结束对话","使用MODE: RESEARCH重新开始"]
-            
-        # 加载自动提交设置
-        self.auto_submit_enabled = self.settings.value("auto_submit_enabled", False, type=bool)
-        self.auto_submit_wait_time = self.settings.value("auto_submit_wait_time", 60, type=int)
         self.settings.endGroup() # End "MainWindow_General" group
         
         # Load project-specific settings (command, auto-execute, selected tab index)
@@ -585,9 +574,6 @@ class FeedbackUI(QMainWindow):
             enter_shortcut = QShortcut(QKeySequence("Ctrl+Enter"), self)
             enter_shortcut.activated.connect(self._submit_feedback)
         
-        # 连接文本变化信号，当用户输入内容时启动自动提交倒计时
-        self.feedback_text.textChanged.connect(self._on_feedback_text_changed)
-        
         submit_button = QPushButton(submit_button_text)
         submit_button.setAutoFillBackground(True)
         submit_button.clicked.connect(self._submit_feedback)
@@ -595,8 +581,6 @@ class FeedbackUI(QMainWindow):
         submit_button.setMinimumHeight(60)
         # 设置大小策略为自适应
         submit_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        # 保存引用以便更新按钮文本
-        self.submit_button = submit_button
         
         # 创建水平布局来包含提交按钮
         submit_layout = QHBoxLayout()
@@ -768,38 +752,9 @@ class FeedbackUI(QMainWindow):
         reset_position_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         position_layout.addWidget(reset_position_button)
         
-        # 自动提交设置部分
-        auto_submit_group = QGroupBox("自动提交设置")
-        auto_submit_layout = QVBoxLayout(auto_submit_group)
-        
-        # 启用/禁用自动提交的复选框
-        self.auto_submit_check = QCheckBox("启用自动提交功能")
-        self.auto_submit_check.setChecked(self.auto_submit_enabled)
-        self.auto_submit_check.stateChanged.connect(self._update_auto_submit)
-        auto_submit_layout.addWidget(self.auto_submit_check)
-        
-        # 等待时间设置
-        wait_time_layout = QHBoxLayout()
-        wait_time_label = QLabel("等待时间(秒):")
-        self.wait_time_input = QLineEdit(str(self.auto_submit_wait_time))
-        self.wait_time_input.setMaximumWidth(100)
-        self.wait_time_input.textChanged.connect(self._validate_wait_time)
-        # 设置输入框的初始状态与自动提交状态一致
-        self.wait_time_input.setEnabled(self.auto_submit_enabled)
-        wait_time_layout.addWidget(wait_time_label)
-        wait_time_layout.addWidget(self.wait_time_input)
-        wait_time_layout.addStretch()
-        auto_submit_layout.addLayout(wait_time_layout)
-        
-        # 说明文本
-        note_label = QLabel("注意: 在输入反馈后，系统将在指定时间后自动提交")
-        note_label.setWordWrap(True)
-        auto_submit_layout.addWidget(note_label)
-        
         # 将分组添加到设置布局
         settings_layout.addWidget(size_group)
         settings_layout.addWidget(position_group)
-        settings_layout.addWidget(auto_submit_group)
         settings_layout.addStretch()
         
         # 添加设置选项卡
@@ -1212,9 +1167,6 @@ class FeedbackUI(QMainWindow):
             self.settings.setValue("custom_position_y", pos.y())
             self.settings.setValue("use_custom_position", True)
         
-        # 保存自动提交设置
-        self.settings.setValue("auto_submit_enabled", self.auto_submit_enabled)
-        self.settings.setValue("auto_submit_wait_time", self.auto_submit_wait_time)
         self.settings.endGroup()
 
         # 保存当前选中的选项卡索引
@@ -1261,124 +1213,6 @@ class FeedbackUI(QMainWindow):
         # 显示状态更改提示
         status_message = "已启用自动保存窗口位置" if is_checked else "已禁用自动保存窗口位置"
         self._show_status_message(status_message)
-    
-    def _update_auto_submit(self, state):
-        """更新自动提交设置"""
-        is_checked = (state == Qt.Checked)
-        self.auto_submit_enabled = is_checked
-        
-        # 保存设置
-        self.settings.beginGroup("MainWindow_General")
-        self.settings.setValue("auto_submit_enabled", is_checked)
-        self.settings.endGroup()
-        
-        # 根据状态启用或禁用等待时间输入框
-        self.wait_time_input.setEnabled(is_checked)
-        
-        # 如果禁用，取消正在进行的计时
-        if not is_checked and self.auto_submit_timer and self.auto_submit_timer.isActive():
-            self.auto_submit_timer.stop()
-            self._reset_countdown()
-            
-        # 显示状态消息
-        status_message = "已启用自动提交功能" if is_checked else "已禁用自动提交功能"
-        self._show_status_message(status_message)
-    
-    def _validate_wait_time(self, text):
-        """验证等待时间输入，确保为有效数字且在合理范围内"""
-        # 确保输入是数字
-        try:
-            value = int(text)
-            # 确保数值在合理范围内 (5-3600秒)
-            if value < 5:
-                value = 5
-                self.wait_time_input.setText(str(value))
-            elif value > 3600:
-                value = 3600
-                self.wait_time_input.setText(str(value))
-                
-            # 更新设置
-            if value != self.auto_submit_wait_time:
-                self.auto_submit_wait_time = value
-                self.settings.beginGroup("MainWindow_General")
-                self.settings.setValue("auto_submit_wait_time", value)
-                self.settings.endGroup()
-                
-                # 如果正在计时，重置计时器
-                if self.auto_submit_timer and self.auto_submit_timer.isActive():
-                    self._reset_countdown()
-                    self._start_countdown()
-                    
-        except ValueError:
-            # 输入非数字，恢复为上一个有效值
-            self.wait_time_input.setText(str(self.auto_submit_wait_time))
-    
-    def _start_countdown(self):
-        """启动自动提交倒计时"""
-        if not self.auto_submit_enabled:
-            return
-            
-        # 如果计时器不存在，创建一个
-        if not self.auto_submit_timer:
-            self.auto_submit_timer = QTimer()
-            self.auto_submit_timer.timeout.connect(self._update_countdown)
-        
-        # 设置倒计时秒数
-        self.countdown_seconds = self.auto_submit_wait_time
-        
-        # 更新按钮文本显示倒计时
-        if self.submit_button:
-            submit_text = self.submit_button.text().split(" (")[0]  # 获取基本文本，去掉可能已有的倒计时
-            self.submit_button.setText(f"{submit_text} ({self._format_countdown_time(self.countdown_seconds)})")
-        
-        # 启动计时器，每秒更新一次
-        self.auto_submit_timer.start(1000)
-    
-    def _update_countdown(self):
-        """更新倒计时，当时间到时自动提交"""
-        if self.countdown_seconds > 0:
-            self.countdown_seconds -= 1
-            
-            # 更新按钮文本
-            if self.submit_button:
-                submit_text = self.submit_button.text().split(" (")[0]  # 获取基本文本，去掉已有的倒计时
-                self.submit_button.setText(f"{submit_text} ({self._format_countdown_time(self.countdown_seconds)})")
-        else:
-            # 时间到，停止计时器并自动提交
-            self._reset_countdown()
-            self._submit_feedback()
-    
-    def _reset_countdown(self):
-        """重置倒计时"""
-        # 停止计时器
-        if self.auto_submit_timer and self.auto_submit_timer.isActive():
-            self.auto_submit_timer.stop()
-        
-        # 重置倒计时秒数
-        self.countdown_seconds = 0
-        
-        # 恢复按钮原始文本
-        if self.submit_button:
-            submit_text = self.submit_button.text().split(" (")[0]  # 获取基本文本，去掉已有的倒计时
-            self.submit_button.setText(submit_text)
-    
-    def _format_countdown_time(self, seconds):
-        """格式化倒计时时间为分:秒格式"""
-        minutes = seconds // 60
-        remaining_seconds = seconds % 60
-        return f"{minutes:01d}:{remaining_seconds:02d}"
-    
-    def _on_feedback_text_changed(self):
-        """处理反馈文本变化，在有内容时启动自动提交倒计时"""
-        # 只有在启用自动提交且文本框有内容的情况下才启动倒计时
-        if self.auto_submit_enabled and self.feedback_text.toPlainText().strip():
-            # 重置之前的计时器（如果有）
-            self._reset_countdown()
-            # 启动新的倒计时
-            self._start_countdown()
-        elif not self.feedback_text.toPlainText().strip():
-            # 文本为空，重置倒计时
-            self._reset_countdown()
     
     def _reset_window_position(self):
         """重置窗口位置到屏幕右下角"""
