@@ -18,3 +18,4 @@ venv*/
 
 .cursor/rules/
 ./temp
+/.idea
