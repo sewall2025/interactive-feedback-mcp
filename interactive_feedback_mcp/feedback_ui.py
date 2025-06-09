@@ -1491,6 +1491,79 @@ class FeedbackUI(QMainWindow):
         """更新大小信息标签"""
         self.size_info_label.setText(f"当前窗口大小: {self.width()} x {self.height()}")
 
+    def _run_git_ai_commit_gui(self):
+        """运行 Git AI Commit GUI 工具"""
+        # 检查是否已有进程在运行
+        if self.process:
+            QMessageBox.warning(self, "警告", "已有命令在运行中，请先停止当前命令")
+            return
+
+        # 切换到终端选项卡以显示输出
+        self.tab_widget.setCurrentIndex(1)  # 终端选项卡是索引1
+
+        # 清空日志缓冲区
+        self.log_buffer = []
+
+        command = "uvx git-ai-commit-gui"
+        self._append_log(f"$ {command}\n")
+        self.git_commit_button.setText("正在运行...")
+        self.git_commit_button.setEnabled(False)
+
+        try:
+            self.process = subprocess.Popen(
+                command,
+                shell=True,
+                cwd=self.project_directory,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=get_user_environment(),
+                text=True,
+                bufsize=1,
+                encoding="utf-8",
+                errors="ignore",
+                close_fds=True,
+            )
+
+            def read_output(pipe):
+                for line in iter(pipe.readline, ""):
+                    self.log_signals.append_log.emit(line)
+
+            threading.Thread(
+                target=read_output,
+                args=(self.process.stdout,),
+                daemon=True
+            ).start()
+
+            threading.Thread(
+                target=read_output,
+                args=(self.process.stderr,),
+                daemon=True
+            ).start()
+
+            # 启动进程状态检查，但使用专门的检查方法
+            self.git_status_timer = QTimer()
+            self.git_status_timer.timeout.connect(self._check_git_process_status)
+            self.git_status_timer.start(100)  # 每100毫秒检查一次
+
+        except Exception as e:
+            self._append_log(f"运行 Git AI Commit GUI 时出错: {str(e)}\n")
+            self.git_commit_button.setText("运行 Git AI Commit GUI")
+            self.git_commit_button.setEnabled(True)
+
+    def _check_git_process_status(self):
+        """检查 Git AI Commit GUI 进程状态"""
+        if self.process and self.process.poll() is not None:
+            # 进程已终止
+            exit_code = self.process.poll()
+            self._append_log(f"\nGit AI Commit GUI 进程已退出，退出代码 {exit_code}\n")
+            self.git_commit_button.setText("运行 Git AI Commit GUI")
+            self.git_commit_button.setEnabled(True)
+            self.process = None
+
+            # 停止状态检查定时器
+            if hasattr(self, 'git_status_timer'):
+                self.git_status_timer.stop()
+
     def resizeEvent(self, event):
         """重写resize事件，在窗口大小变化时更新大小信息标签"""
         super().resizeEvent(event)
