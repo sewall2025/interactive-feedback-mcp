@@ -5,15 +5,15 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="15328e51-329a-4228-a880-d46668c83696" name="更改" comment="">
-      <change beforePath="$PROJECT_DIR$/.github/cursor-example.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.github/interactive_feedback_1.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.github/interactive_feedback_2.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/feedback_ui.py" beforeDir="false" afterPath="$PROJECT_DIR$/feedback_ui.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/images/feedback.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/feedback_ui.py" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/pyproject.toml" beforeDir="false" afterPath="$PROJECT_DIR$/pyproject.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server.py" beforeDir="false" afterPath="$PROJECT_DIR$/server.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/readme.md" beforeDir="false" afterPath="$PROJECT_DIR$/readme.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server.py" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/uv.lock" beforeDir="false" afterPath="$PROJECT_DIR$/uv.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/归档1.zip" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/归档2.zip" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/归档3.zip" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -50,7 +50,7 @@
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
 }</component>
-  <component name="RunManager" selected="Python.debug_always_on_top">
+  <component name="RunManager" selected="Python.feedback_ui">
     <configuration name="debug_always_on_top" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="interactive-feedback-mcp" />
       <option name="ENV_FILES" value="" />
@@ -122,8 +122,8 @@
     </configuration>
     <recent_temporary>
       <list>
-        <item itemvalue="Python.debug_always_on_top" />
         <item itemvalue="Python.feedback_ui" />
+        <item itemvalue="Python.debug_always_on_top" />
         <item itemvalue="Python.server" />
       </list>
     </recent_temporary>
@@ -145,7 +145,10 @@
       <updated>1749037144170</updated>
       <workItem from="1749037145037" duration="2167000" />
       <workItem from="1749039342496" duration="27000" />
-      <workItem from="1749039381195" duration="13264000" />
+      <workItem from="1749039381195" duration="15407000" />
+      <workItem from="1749089570789" duration="40000" />
+      <workItem from="1749089616893" duration="52000" />
+      <workItem from="1749434454227" duration="3264000" />
     </task>
     <servers />
   </component>
@@ -153,7 +156,7 @@
     <option name="version" value="3" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/interactive_feedback_mcp$feedback_ui.coverage" NAME="feedback_ui 覆盖结果" MODIFIED="1749085497958" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/interactive_feedback_mcp$feedback_ui.coverage" NAME="feedback_ui 覆盖结果" MODIFIED="1749089448328" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/interactive_feedback_mcp$debug_always_on_top.coverage" NAME="debug_always_on_top 覆盖结果" MODIFIED="1749085844837" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/interactive_feedback_mcp$server.coverage" NAME="server 覆盖结果" MODIFIED="1749082276821" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>

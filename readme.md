@@ -20,6 +20,39 @@
 ## cursor配置
 ![设置界面](img_3.png)
 
+## 🚀 快速开始
+
+### 直接使用（推荐）
+
+无需安装，直接运行：
+
+```bash
+# 使用 uvx 直接运行（推荐）
+uvx interactive-feedback-mcp
+
+# 从 GitHub 运行最新版本
+uvx --from git+https://github.com/duolabmeng6/interactive-feedback-mcp.git interactive-feedback-mcp
+```
+
+### 本地开发
+
+如果您已经克隆了项目：
+
+```bash
+# 进入项目目录
+cd interactive-feedback-mcp
+
+# 使用 uv 运行
+uv run interactive-feedback-mcp
+
+# 或者直接运行 Python 脚本
+uv run python interactive_feedback_mcp/server.py
+```
+
+### 参数说明
+
+工具启动后会等待 MCP 协议的输入。通常情况下，您不需要手动运行这些命令，而是通过 AI 助手的 MCP 配置来使用。
+
 ## ⚡ MCP 配置
 
 ### 使用 uvx (推荐)
@@ -31,13 +64,15 @@
   "mcpServers": {
     "interactive-feedback-mcp": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/duolabmeng6/interactive-feedback-mcp.git", "python", "server.py"],
+      "args": ["--from", "git+https://github.com/duolabmeng6/interactive-feedback-mcp.git", "interactive-feedback-mcp"],
       "timeout": 600,
       "autoApprove": ["interactive_feedback"]
     }
   }
 }
 ```
+
+> **注意**：使用 `uvx interactive-feedback-mcp` 而不是 `uvx run interactive-feedback-mcp`。uvx 是 uv tool run 的别名，直接指定工具名即可。
 
 ### 使用 uv (本地安装)
 
@@ -48,7 +83,22 @@
   "mcpServers": {
     "interactive-feedback-mcp": {
       "command": "uv",
-      "args": ["run", "--directory", "/path/to/interactive-feedback-mcp", "python", "server.py"],
+      "args": ["run", "--directory", "/path/to/interactive-feedback-mcp", "interactive-feedback-mcp"],
+      "timeout": 600,
+      "autoApprove": ["interactive_feedback"]
+    }
+  }
+}
+```
+
+或者使用传统方式：
+
+```json
+{
+  "mcpServers": {
+    "interactive-feedback-mcp": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/interactive-feedback-mcp", "python", "interactive_feedback_mcp/server.py"],
       "timeout": 600,
       "autoApprove": ["interactive_feedback"]
     }
@@ -63,7 +113,7 @@
   "mcpServers": {
     "interactive-feedback-mcp": {
       "command": "python",
-      "args": ["/path/to/interactive-feedback-mcp/server.py"],
+      "args": ["/path/to/interactive-feedback-mcp/interactive_feedback_mcp/server.py"],
       "timeout": 600,
       "autoApprove": ["interactive_feedback"]
     }
@@ -125,6 +175,22 @@
   * `Context7`: 查询最新库文档/示例。
   * 优先使用MCP服务。
 ```
+
+## ❓ 常见问题
+
+### Q: 如何直接测试工具是否正常工作？
+A: 运行 `uvx interactive-feedback-mcp`，工具会启动并等待 MCP 协议输入。如果没有错误信息，说明工具正常工作。
+
+### Q: 运行 `uvx run interactive-feedback-mcp` 时提示错误怎么办？
+A: 正确的命令是 `uvx interactive-feedback-mcp`（不需要 `run`）。如果看到提示询问是否要执行正确命令，输入 `y` 确认即可。
+
+### Q: uvx、uv run、uv tool run 有什么区别？
+A:
+- `uvx` = `uv tool run`：用于运行独立工具，工具会安装在临时隔离环境中
+- `uv run`：在项目环境中运行命令，适用于项目内的脚本和工具
+
+### Q: 工具启动后没有界面怎么办？
+A: 这是正常的！工具启动后会等待 MCP 协议的输入。只有当 AI 助手调用 `interactive_feedback` 功能时，才会弹出图形界面。
 
 ### 使用建议
 

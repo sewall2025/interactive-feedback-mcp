@@ -1,6 +1,6 @@
 [project]
 name = "interactive-feedback-mcp"
-version = "0.1.0"
+version = "0.1.2"
 description = "MCP server for interactive user feedback and command execution in AI-assisted development, by Fábio Ferreira."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -10,3 +10,16 @@ dependencies = [
     "pyside6>=6.8.2.1",
     "pillow",
 ]
+
+[project.scripts]
+interactive-feedback-mcp = "interactive_feedback_mcp.server:main"
+
+[tool.uv]
+package = true
+
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["interactive_feedback_mcp*"]
