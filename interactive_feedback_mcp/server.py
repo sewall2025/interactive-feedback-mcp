@@ -66,9 +66,9 @@ def first_line(text: str) -> str:
 def interactive_feedback(
     project_directory: Annotated[str, Field(description="Full path to the project directory")],
     summary: Annotated[str, Field(description="Short, one-line summary of the changes")],
-) -> Dict[str, str]:
+) -> Dict[str, Union[str, List]]:
     """Request interactive feedback for a given project directory and summary"""
-    
+
     result_dict = launch_feedback_ui(first_line(project_directory), first_line(summary))
     return header_data(result_dict)
 
@@ -107,28 +107,53 @@ def compress_image(image_path: str):
             image_data = f.read()
         return image_data, img_format
 
-def header_data(result_dict: dict) -> tuple:
+def header_data(result_dict: dict) -> Dict[str, Union[str, List]]:
     # print(result_dict)
     # {'logs': '', 'interactive_feedback': 'asdasdas', 'uploaded_images': ['/Users/ll/Desktop/2025/interactive-feedback-mcp/images/feedback.png']}
 
-    logs = result_dict.get("logs", "")
+    logs = result_dict.get("command_logs", "") or result_dict.get("logs", "")
     interactive_feedbacktxt = result_dict.get("interactive_feedback", "")
     uploaded_images = result_dict.get("uploaded_images", [])
 
-    processed_content: List[Union[str, Image]] = []
+    # 构建返回的字典结构
+    response_data = {}
 
-    if logs and logs != "":
-        processed_content.append("收集的日志: \n" + logs)
-    
-    if interactive_feedbacktxt and interactive_feedbacktxt != "":
-        processed_content.append("用户反馈信息: \n" + interactive_feedbacktxt)
-    
-    for image_path in uploaded_images:
-        image_data,img_format = compress_image(image_path)
-        mcp_image = Image(data=image_data, format=img_format)
-        processed_content.append(mcp_image)
-        
-    return tuple(processed_content)
+    # 添加文本内容
+    text_content = []
+    if logs and logs.strip():
+        text_content.append(f"收集的日志:\n{logs}")
+
+    if interactive_feedbacktxt and interactive_feedbacktxt.strip():
+        text_content.append(f"用户反馈信息:\n{interactive_feedbacktxt}")
+
+    if text_content:
+        response_data["text"] = "\n\n".join(text_content)
+
+    # 处理图片
+    if uploaded_images:
+        images_data = []
+        for image_path in uploaded_images:
+            try:
+                image_data, img_format = compress_image(image_path)
+                # 将图片数据编码为base64字符串
+                import base64
+                image_b64 = base64.b64encode(image_data).decode('utf-8')
+                images_data.append({
+                    "format": img_format,
+                    "data": image_b64,
+                    "path": image_path
+                })
+            except Exception as e:
+                print(f"处理图片失败 {image_path}: {e}")
+
+        if images_data:
+            response_data["images"] = images_data
+
+    # 如果没有任何内容，返回默认消息
+    if not response_data:
+        response_data["text"] = "未收到任何反馈内容"
+
+    return response_data
 
 def main():
     """Main entry point for the interactive feedback MCP server."""

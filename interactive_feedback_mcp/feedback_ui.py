@@ -369,6 +369,7 @@ class FeedbackUI(QMainWindow):
         self.auto_submit_timer = None     # 倒计时定时器
         self.countdown_remaining = 0      # 剩余倒计时时间
         self.original_submit_text = ""    # 原始提交按钮文本
+        self.auto_fill_first_reply = True # 自动提交时如果反馈为空，是否自动填入第一条预设回复
 
         # 窗口大小设置
         self.default_size = (460, 360)
@@ -765,6 +766,7 @@ class FeedbackUI(QMainWindow):
         # 读取自动提交设置
         self.auto_submit_enabled = self.settings.value("auto_submit_enabled", False, type=bool)
         self.auto_submit_wait_time = self.settings.value("auto_submit_wait_time", 60, type=int)
+        self.auto_fill_first_reply = self.settings.value("auto_fill_first_reply", True, type=bool)
 
         self.settings.endGroup()
         
@@ -799,6 +801,12 @@ class FeedbackUI(QMainWindow):
         self.auto_submit_check.stateChanged.connect(self._update_auto_submit_settings)
         auto_submit_layout.addWidget(self.auto_submit_check)
 
+        # 自动填入第一条预设回复的勾选框
+        self.auto_fill_first_reply_check = QCheckBox("反馈为空时自动填入第一条预设回复")
+        self.auto_fill_first_reply_check.setChecked(self.auto_fill_first_reply)
+        self.auto_fill_first_reply_check.stateChanged.connect(self._update_auto_submit_settings)
+        auto_submit_layout.addWidget(self.auto_fill_first_reply_check)
+
         # 等待时间设置
         time_layout = QHBoxLayout()
         time_label = QLabel("等待时间（秒）:")
@@ -813,7 +821,7 @@ class FeedbackUI(QMainWindow):
         auto_submit_layout.addLayout(time_layout)
 
         # 说明文字
-        info_label = QLabel("启用后，打开窗口时将自动开始倒计时，时间到后自动提交反馈。\n点击反馈文本框可停止自动提交。")
+        info_label = QLabel("启用后，打开窗口时将自动开始倒计时，时间到后自动提交反馈。\n点击反馈文本框可停止自动提交。\n如果启用了自动填入功能，当反馈为空时会自动使用第一条预设回复。")
         info_label.setWordWrap(True)
         info_label.setStyleSheet("color: gray; font-size: 11px;")
         auto_submit_layout.addWidget(info_label)
@@ -1295,6 +1303,7 @@ class FeedbackUI(QMainWindow):
         # 保存自动提交设置
         self.settings.setValue("auto_submit_enabled", self.auto_submit_enabled)
         self.settings.setValue("auto_submit_wait_time", self.auto_submit_wait_time)
+        self.settings.setValue("auto_fill_first_reply", self.auto_fill_first_reply)
 
         # 保存窗口置顶设置
         if hasattr(self, 'stay_on_top_check'):
@@ -1352,6 +1361,10 @@ class FeedbackUI(QMainWindow):
         # 更新启用状态
         self.auto_submit_enabled = self.auto_submit_check.isChecked()
 
+        # 更新自动填入第一条预设回复的设置
+        if hasattr(self, 'auto_fill_first_reply_check'):
+            self.auto_fill_first_reply = self.auto_fill_first_reply_check.isChecked()
+
         # 更新等待时间
         try:
             wait_time = int(self.auto_submit_time_input.text())
@@ -1370,6 +1383,7 @@ class FeedbackUI(QMainWindow):
         self.settings.beginGroup("MainWindow_General")
         self.settings.setValue("auto_submit_enabled", self.auto_submit_enabled)
         self.settings.setValue("auto_submit_wait_time", self.auto_submit_wait_time)
+        self.settings.setValue("auto_fill_first_reply", self.auto_fill_first_reply)
         self.settings.endGroup()
 
     def _start_auto_submit_countdown(self):
@@ -1420,6 +1434,16 @@ class FeedbackUI(QMainWindow):
         """自动提交超时处理"""
         # 停止倒计时
         self._stop_auto_submit_countdown()
+
+        # 检查反馈文本框是否为空，并且启用了自动填入功能
+        current_feedback = self.feedback_text.toPlainText().strip()
+        if not current_feedback and self.auto_fill_first_reply:
+            # 如果反馈为空且启用了自动填入，使用预设信息的第一条
+            if self.quick_replies and len(self.quick_replies) > 0:
+                first_quick_reply = self.quick_replies[0]
+                self.feedback_text.setText(first_quick_reply)
+                # 显示一个简短的提示信息
+                self._show_status_message(f"自动填入预设回复: {first_quick_reply}")
 
         # 执行提交
         self._submit_feedback()

@@ -31,7 +31,7 @@
 uvx interactive-feedback-mcp
 
 # 从 GitHub 运行最新版本
-uvx --from git+https://github.com/duolabmeng6/interactive-feedback-mcp.git interactive-feedback-mcp
+uvx --from git+https://github.com/sewall2025/interactive-feedback-mcp.git interactive-feedback-mcp
 ```
 
 ### 本地开发
@@ -64,7 +64,7 @@ uv run python interactive_feedback_mcp/server.py
   "mcpServers": {
     "interactive-feedback-mcp": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/duolabmeng6/interactive-feedback-mcp.git", "interactive-feedback-mcp"],
+      "args": ["--from", "git+https://github.com/sewall2025/interactive-feedback-mcp.git", "interactive-feedback-mcp"],
       "timeout": 600,
       "autoApprove": ["interactive_feedback"]
     }
