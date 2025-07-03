@@ -155,6 +155,16 @@ class FeedbackTextEdit(QTextEdit):
         self.setAcceptRichText(False)  # 禁用富文本粘贴，只允许纯文本
         self.feedback_ui = feedback_ui  # 保存对FeedbackUI实例的引用
 
+        # 连接文本变化信号，当用户输入时停止自动提交倒计时
+        self.textChanged.connect(self._on_text_changed)
+
+    def _on_text_changed(self):
+        """当文本内容发生变化时停止自动提交倒计时"""
+        if self.feedback_ui:
+            # 只要用户开始编辑文本（无论是输入还是删除），都停止自动提交
+            # 这样可以避免用户正在编辑时突然自动提交的情况
+            self.feedback_ui._stop_auto_submit_countdown()
+
     def keyPressEvent(self, event: QKeyEvent):
         # 检查是否按下Ctrl+Enter或Ctrl+Return
         is_enter = (event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter)
