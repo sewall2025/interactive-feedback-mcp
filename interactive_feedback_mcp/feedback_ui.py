@@ -398,6 +398,8 @@ class PersonalizationManager:
         self.settings.beginGroup(self.isolation_group_name)
         self.settings.setValue("window_border_color", color)
         self.settings.endGroup()
+        # 强制同步到磁盘，确保数据持久化
+        self.settings.sync()
 
     def apply_border_color(self, color: str, window: QMainWindow):
         """应用颜色到窗口底色 - 更自然的方式"""
@@ -423,6 +425,8 @@ class PersonalizationManager:
         self.settings.beginGroup(self.isolation_group_name)
         self.settings.setValue("custom_title", title)
         self.settings.endGroup()
+        # 强制同步到磁盘，确保数据持久化
+        self.settings.sync()
 
     def load_title_mode(self) -> str:
         """加载标题模式（dynamic/custom）"""
@@ -436,6 +440,8 @@ class PersonalizationManager:
         self.settings.beginGroup(self.isolation_group_name)
         self.settings.setValue("title_mode", mode)
         self.settings.endGroup()
+        # 强制同步到磁盘，确保数据持久化
+        self.settings.sync()
 
     def apply_window_title(self, title_mode: str, custom_title: str, window: QMainWindow, isolation_key: str):
         """应用窗口标题（支持动态和自定义模式）"""
@@ -755,6 +761,8 @@ class FeedbackUI(QMainWindow):
                     self.settings.setValue("custom_position_x", fixed_position.x())
                     self.settings.setValue("custom_position_y", fixed_position.y())
                     self.settings.endGroup()
+                    # 强制同步到磁盘，确保数据持久化
+                    self.settings.sync()
                 else:
                     # 无法修复，重置为默认位置
                     self.use_custom_position = False
@@ -764,6 +772,8 @@ class FeedbackUI(QMainWindow):
                     self.settings.remove("custom_position_x")
                     self.settings.remove("custom_position_y")
                     self.settings.endGroup()
+                    # 强制同步到磁盘，确保数据持久化
+                    self.settings.sync()
             
         # 从三层隔离设置中加载快捷回复设置
         self.settings.beginGroup(self._get_isolation_settings_group())
@@ -846,6 +856,8 @@ class FeedbackUI(QMainWindow):
                 self.settings.remove("custom_position_x")
                 self.settings.remove("custom_position_y")
                 self.settings.endGroup()
+                # 强制同步到磁盘，确保数据持久化
+                self.settings.sync()
             
         # 使用默认的右下角位置
         current_width = self.width()
@@ -2067,6 +2079,8 @@ AI应用: {conv.client_name}
             self.settings.beginGroup(self._get_isolation_settings_group())
             self.settings.setValue("quick_replies", self.quick_replies)
             self.settings.endGroup()
+            # 强制同步到磁盘，确保数据持久化
+            self.settings.sync()
            
     def _upload_image(self):
         """上传图片"""
@@ -2318,6 +2332,8 @@ AI应用: {conv.client_name}
         self.settings.setValue("run_command", self.config["run_command"])
         self.settings.setValue("execute_automatically", self.config["execute_automatically"])
         self.settings.endGroup()
+        # 强制同步到磁盘，确保数据持久化
+        self.settings.sync()
         
     def _save_window_position(self):
         """保存当前窗口位置到用户设置"""
@@ -2328,6 +2344,8 @@ AI应用: {conv.client_name}
         self.settings.setValue("custom_position_y", pos.y())
         self.settings.setValue("use_custom_position", True)
         self.settings.endGroup()
+        # 强制同步到磁盘，确保数据持久化
+        self.settings.sync()
         
         # 更新内部状态
         self.use_custom_position = True
@@ -2342,6 +2360,8 @@ AI应用: {conv.client_name}
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("windowState", self.saveState())
         self.settings.endGroup()
+        # 强制同步到磁盘，确保数据持久化
+        self.settings.sync()
         
         # Save three-layer isolation settings
         self.settings.beginGroup(self._get_isolation_settings_group())
@@ -2374,8 +2394,10 @@ AI应用: {conv.client_name}
         # 保存项目特定设置（run_command, execute_automatically）
         self.settings.setValue("run_command", self.config["run_command"])
         self.settings.setValue("execute_automatically", self.config["execute_automatically"])
-        
+
         self.settings.endGroup()
+        # 强制同步到磁盘，确保数据持久化
+        self.settings.sync()
 
         if self.process:
             kill_tree(self.process)
@@ -2409,6 +2431,8 @@ AI应用: {conv.client_name}
         self.settings.beginGroup(self._get_isolation_settings_group())
         self.settings.setValue("auto_save_position", is_checked)
         self.settings.endGroup()
+        # 强制同步到磁盘，确保数据持久化
+        self.settings.sync()
 
         # 显示状态更改提示
         status_message = "已启用自动保存窗口位置" if is_checked else "已禁用自动保存窗口位置"
@@ -2443,6 +2467,8 @@ AI应用: {conv.client_name}
         self.settings.setValue("auto_submit_wait_time", self.auto_submit_wait_time)
         self.settings.setValue("auto_fill_first_reply", self.auto_fill_first_reply)
         self.settings.endGroup()
+        # 强制同步到磁盘，确保数据持久化
+        self.settings.sync()
 
     def _start_auto_submit_countdown(self):
         """启动自动提交倒计时"""
@@ -2512,6 +2538,8 @@ AI应用: {conv.client_name}
         self.settings.beginGroup(self._get_isolation_settings_group())
         self.settings.setValue("stay_on_top_enabled", is_checked)
         self.settings.endGroup()
+        # 强制同步到磁盘，确保数据持久化
+        self.settings.sync()
 
         # 显示状态更改提示
         status_message = "已启用启动时窗口置顶" if is_checked else "已禁用启动时窗口置顶"
@@ -2545,6 +2573,8 @@ AI应用: {conv.client_name}
         self.settings.remove("custom_position_x")
         self.settings.remove("custom_position_y")
         self.settings.endGroup()
+        # 强制同步到磁盘，确保数据持久化
+        self.settings.sync()
         
         # 重新定位窗口
         self._position_window_bottom_right()
