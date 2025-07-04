@@ -10,7 +10,6 @@ import subprocess
 import threading
 import hashlib
 import uuid
-import datetime
 from datetime import datetime
 from typing import Optional, TypedDict, List
 
@@ -29,6 +28,33 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QObject, QTimer, QSettings, QPoint, QSize, QByteArray, QBuffer, QIODevice
 from PySide6.QtGui import QTextCursor, QIcon, QKeyEvent, QFont, QFontDatabase, QPalette, QColor, QPixmap, QImage, QClipboard, QShortcut, QKeySequence
 
+# 12个精选的窗口边框颜色
+BORDER_COLORS = [
+    # 经典色系（第一行）
+    "#ffffff",  # 默认白色（实际显示为#e0e0e0）
+    "#000000",  # 纯黑色
+    "#7f8c8d",  # 银灰色
+    "#bdc3c7",  # 浅灰色
+    "#34495e",  # 深灰色
+    "#2c3e50",  # 深蓝灰色
+    
+    # 彩色系（第二行）
+    "#3498db",  # 清新蓝色
+    "#e74c3c",  # 活力红色
+    "#2ecc71",  # 自然绿色
+    "#f39c12",  # 温暖橙色
+    "#9b59b6",  # 优雅紫色
+    "#1abc9c",  # 现代青色
+]
+
+# 颜色名称映射（用于工具提示）
+COLOR_NAMES = {
+    "#ffffff": "默认白色", "#000000": "黑色", "#7f8c8d": "灰色",
+    "#bdc3c7": "浅灰", "#34495e": "深灰", "#2c3e50": "深蓝灰",
+    "#3498db": "蓝色", "#e74c3c": "红色", "#2ecc71": "绿色", 
+    "#f39c12": "橙色", "#9b59b6": "紫色", "#1abc9c": "青色"
+}
+
 class FeedbackResult(TypedDict):
     command_logs: str
     interactive_feedback: str
@@ -40,7 +66,7 @@ class FeedbackConfig(TypedDict):
 
 def generate_random_filename(extension: str = "jpg") -> str:
     """生成随机文件名，格式为：年月日_时分秒_uuid.扩展名"""
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     random_str = str(uuid.uuid4())[:8]  # 取UUID的前8位
     return f"{timestamp}_{random_str}.{extension}"
 
@@ -352,6 +378,253 @@ class QuickReplyEditDialog(QDialog):
 class LogSignals(QObject):
     append_log = Signal(str)
 
+class PersonalizationManager:
+    """个性化设置管理器（基于三层隔离）"""
+
+    def __init__(self, isolation_key: str):
+        self.isolation_key = isolation_key
+        self.isolation_group_name = f"ThreeLayer_{isolation_key}"
+        self.settings = QSettings("InteractiveFeedbackMCP", "InteractiveFeedbackMCP")
+
+    def load_border_color(self) -> str:
+        """加载三层隔离组合的边框颜色设置"""
+        self.settings.beginGroup(self.isolation_group_name)
+        color = self.settings.value("window_border_color", "#ffffff", type=str)
+        self.settings.endGroup()
+        return color
+
+    def save_border_color(self, color: str):
+        """保存边框颜色设置"""
+        self.settings.beginGroup(self.isolation_group_name)
+        self.settings.setValue("window_border_color", color)
+        self.settings.endGroup()
+
+    def apply_border_color(self, color: str, window: QMainWindow):
+        """应用颜色到窗口底色 - 更自然的方式"""
+        # 白色底色实际显示为浅灰色以保证可见性
+        display_color = "#f5f5f5" if color == "#ffffff" else color
+
+        # 设置窗口底色而不是边框
+        window.setStyleSheet(f"""
+            QMainWindow {{
+                background-color: {display_color};
+            }}
+        """)
+
+    def load_custom_title(self) -> str:
+        """加载三层隔离组合的自定义标题"""
+        self.settings.beginGroup(self.isolation_group_name)
+        title = self.settings.value("custom_title", "", type=str)
+        self.settings.endGroup()
+        return title
+
+    def save_custom_title(self, title: str):
+        """保存自定义标题"""
+        self.settings.beginGroup(self.isolation_group_name)
+        self.settings.setValue("custom_title", title)
+        self.settings.endGroup()
+
+    def load_title_mode(self) -> str:
+        """加载标题模式（dynamic/custom）"""
+        self.settings.beginGroup(self.isolation_group_name)
+        mode = self.settings.value("title_mode", "dynamic", type=str)
+        self.settings.endGroup()
+        return mode
+
+    def save_title_mode(self, mode: str):
+        """保存标题模式"""
+        self.settings.beginGroup(self.isolation_group_name)
+        self.settings.setValue("title_mode", mode)
+        self.settings.endGroup()
+
+    def apply_window_title(self, title_mode: str, custom_title: str, window: QMainWindow, isolation_key: str):
+        """应用窗口标题（支持动态和自定义模式）"""
+        if title_mode == "dynamic":
+            title = f"Interactive: {isolation_key}"
+        else:  # custom mode
+            if custom_title.strip():
+                title = custom_title.strip()
+            else:
+                # 默认显示 key1+key2+key3 格式
+                title = isolation_key
+
+        window.setWindowTitle(title)
+
+class ColorSelectionWidget(QWidget):
+    """颜色选择控件"""
+    color_changed = Signal(str)
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.color_buttons = []
+        self.selected_color = "#ffffff"
+        self._create_color_buttons()
+    
+    def _create_color_buttons(self):
+        """创建颜色选择按钮网格"""
+        layout = QGridLayout(self)
+        layout.setSpacing(5)
+        
+        # 创建2行6列的颜色按钮网格
+        for i, color in enumerate(BORDER_COLORS):
+            row = i // 6
+            col = i % 6
+            
+            button = QPushButton()
+            button.setFixedSize(40, 30)
+            button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {color};
+                    border: 2px solid #ccc;
+                    border-radius: 4px;
+                }}
+                QPushButton:hover {{
+                    border: 2px solid #666;
+                }}
+                QPushButton:checked {{
+                    border: 3px solid #000;
+                    border-radius: 4px;
+                }}
+            """)
+            button.setCheckable(True)
+            button.setToolTip(COLOR_NAMES[color])
+            button.clicked.connect(lambda checked, c=color: self._on_color_selected(c))
+            
+            self.color_buttons.append(button)
+            layout.addWidget(button, row, col)
+        
+        # 默认选中白色
+        self.color_buttons[0].setChecked(True)
+    
+    def _on_color_selected(self, color: str):
+        """处理颜色选择"""
+        # 取消其他按钮的选中状态
+        for button in self.color_buttons:
+            button.setChecked(False)
+        
+        # 选中当前按钮
+        color_index = BORDER_COLORS.index(color)
+        self.color_buttons[color_index].setChecked(True)
+        
+        self.selected_color = color
+        self.color_changed.emit(color)
+    
+    def set_selected_color(self, color: str):
+        """设置选中的颜色"""
+        if color in BORDER_COLORS:
+            self.selected_color = color
+            # 更新按钮状态
+            for button in self.color_buttons:
+                button.setChecked(False)
+            color_index = BORDER_COLORS.index(color)
+            self.color_buttons[color_index].setChecked(True)
+    
+    def get_selected_color(self) -> str:
+        """获取当前选中的颜色"""
+        return self.selected_color
+
+class TitleCustomizationWidget(QWidget):
+    """标题自定义控件（支持动态和自定义模式）"""
+    title_changed = Signal(str)
+    title_mode_changed = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.mode_selector = QComboBox()  # 动态/自定义模式选择
+        self.title_input = QLineEdit()
+        self.preview_label = QLabel()
+        self._setup_ui()
+
+    def _setup_ui(self):
+        """设置UI布局"""
+        layout = QVBoxLayout(self)
+        
+        # 模式选择
+        mode_layout = QHBoxLayout()
+        mode_label = QLabel("标题模式:")
+        self.mode_selector.addItem("动态模式", "dynamic")
+        self.mode_selector.addItem("自定义模式", "custom")
+        self.mode_selector.currentTextChanged.connect(self._on_mode_changed)
+        
+        mode_layout.addWidget(mode_label)
+        mode_layout.addWidget(self.mode_selector)
+        mode_layout.addStretch()
+        layout.addLayout(mode_layout)
+        
+        # 自定义标题输入
+        input_layout = QHBoxLayout()
+        input_label = QLabel("自定义内容:")
+        self.title_input.setMaxLength(50)  # 限制50个字符
+        self.title_input.setPlaceholderText("最多50个字符")
+        self.title_input.textChanged.connect(self._on_title_changed)
+        
+        input_layout.addWidget(input_label)
+        input_layout.addWidget(self.title_input)
+        layout.addLayout(input_layout)
+        
+        # 预览标签
+        preview_layout = QHBoxLayout()
+        preview_title_label = QLabel("预览:")
+        self.preview_label.setStyleSheet("color: #666; font-style: italic;")
+        self.preview_label.setWordWrap(True)
+        
+        preview_layout.addWidget(preview_title_label)
+        preview_layout.addWidget(self.preview_label)
+        layout.addLayout(preview_layout)
+        
+        # 初始化预览
+        self._update_preview()
+    
+    def _on_mode_changed(self):
+        """模式变化处理"""
+        mode = self.get_title_mode()
+        self.title_input.setEnabled(mode == "custom")
+        self._update_preview()
+        self.title_mode_changed.emit(mode)
+    
+    def _on_title_changed(self):
+        """标题内容变化处理"""
+        self._update_preview()
+        self.title_changed.emit(self.get_custom_title())
+    
+    def _update_preview(self):
+        """更新预览显示"""
+        mode = self.get_title_mode()
+        if mode == "dynamic":
+            self.preview_label.setText("Interactive: {client}_{worker}_{project}")
+        else:
+            custom_title = self.get_custom_title()
+            if custom_title.strip():
+                self.preview_label.setText(custom_title.strip())
+            else:
+                # 默认显示 key1+key2+key3 格式
+                self.preview_label.setText("{client}_{worker}_{project}")
+
+    def set_title_mode(self, mode: str):
+        """设置标题模式（dynamic/custom）"""
+        index = 0 if mode == "dynamic" else 1
+        self.mode_selector.setCurrentIndex(index)
+        self._on_mode_changed()
+
+    def get_title_mode(self) -> str:
+        """获取标题模式"""
+        return self.mode_selector.currentData()
+
+    def set_custom_title(self, title: str):
+        """设置自定义标题"""
+        self.title_input.setText(title[:50])  # 确保不超过50个字符
+        self._update_preview()
+
+    def get_custom_title(self) -> str:
+        """获取自定义标题"""
+        return self.title_input.text()
+
+    def update_preview_with_isolation_key(self, isolation_key: str):
+        """使用隔离键更新动态模式预览"""
+        mode = self.get_title_mode()
+        if mode == "dynamic":
+            self.preview_label.setText(f"Interactive: {isolation_key}")
+
 class FeedbackUI(QMainWindow):
     def __init__(self, project_directory: str, prompt: str, worker: str = "default", client_name: str = "unknown-client"):
         super().__init__()
@@ -362,6 +635,9 @@ class FeedbackUI(QMainWindow):
         
         # 生成三层隔离键
         self.isolation_key = self._generate_isolation_key(client_name, worker, project_directory)
+        
+        # 初始化个性化管理器
+        self.personalization_manager = PersonalizationManager(self.isolation_key)
         
         # 初始化历史记录管理器
         self.history_manager = HistoryManager()
@@ -397,14 +673,20 @@ class FeedbackUI(QMainWindow):
         self.original_submit_text = ""    # 原始提交按钮文本
         self.auto_fill_first_reply = True # 自动提交时如果反馈为空，是否自动填入第一条预设回复
 
-        # 窗口大小设置
+        # 窗口大小设置 - 修复窗口过大问题
         self.default_size = (460, 360)
         self.size_multiplier = 1
-        self.size_states = [1, 2, 3]  # 窗口大小倍数状态
+        self.size_states = [1, 1.5, 2]  # 窗口大小倍数状态，降低最大倍数
 
-        # 设置动态窗口标题
-        dynamic_title = f"Interactive: {self.isolation_key}"
-        self.setWindowTitle(dynamic_title)
+        # 应用保存的个性化设置
+        # 加载并应用边框颜色
+        saved_border_color = self.personalization_manager.load_border_color()
+        self.personalization_manager.apply_border_color(saved_border_color, self)
+        
+        # 加载并应用窗口标题
+        saved_title_mode = self.personalization_manager.load_title_mode()
+        saved_custom_title = self.personalization_manager.load_custom_title()
+        self.personalization_manager.apply_window_title(saved_title_mode, saved_custom_title, self, self.isolation_key)
         script_dir = os.path.dirname(os.path.abspath(__file__))
         icon_path = os.path.join(script_dir, "images", "feedback.png")
         self.setWindowIcon(QIcon(icon_path))
@@ -427,12 +709,12 @@ class FeedbackUI(QMainWindow):
         # Load general UI settings for the main window (geometry, state)
         self.settings.beginGroup("MainWindow_General")
         geometry = self.settings.value("geometry")
+        state = self.settings.value("windowState")
+        self.settings.endGroup()
+        
+        # 先恢复几何信息（但不包括位置，位置将在后面单独处理）
         if geometry:
             self.restoreGeometry(geometry)
-        else:
-            # 设置窗口位置在屏幕右下角
-            self._position_window_bottom_right()
-        state = self.settings.value("windowState")
         if state:
             self.restoreState(state)
             
@@ -448,13 +730,40 @@ class FeedbackUI(QMainWindow):
             
         # 检查是否有用户保存的自定义位置
         self.use_custom_position = self.settings.value("use_custom_position", False, type=bool)
-        custom_x = self.settings.value("custom_position_x", -1, type=int)
-        custom_y = self.settings.value("custom_position_y", -1, type=int)
+        custom_x = self.settings.value("custom_position_x", None, type=int)
+        custom_y = self.settings.value("custom_position_y", None, type=int)
         self.custom_position = None
-        if custom_x >= 0 and custom_y >= 0:
+        if custom_x is not None and custom_y is not None:
             from PySide6.QtCore import QPoint
             self.custom_position = QPoint(custom_x, custom_y)
         self.settings.endGroup()
+        
+        # 立即应用自定义位置（如果有的话），覆盖restoreGeometry的位置设置
+        if self.use_custom_position and self.custom_position:
+            if self._is_position_valid(self.custom_position):
+                # 位置有效，直接应用
+                self.move(self.custom_position)
+            else:
+                # 位置可能无效（如显示器配置改变），尝试智能修复
+                fixed_position = self._fix_invalid_position(self.custom_position)
+                if fixed_position:
+                    # 修复成功，使用修复后的位置
+                    self.move(fixed_position)
+                    # 更新保存的位置
+                    self.custom_position = fixed_position
+                    self.settings.beginGroup(self._get_isolation_settings_group())
+                    self.settings.setValue("custom_position_x", fixed_position.x())
+                    self.settings.setValue("custom_position_y", fixed_position.y())
+                    self.settings.endGroup()
+                else:
+                    # 无法修复，重置为默认位置
+                    self.use_custom_position = False
+                    self.custom_position = None
+                    self.settings.beginGroup(self._get_isolation_settings_group())
+                    self.settings.setValue("use_custom_position", False)
+                    self.settings.remove("custom_position_x")
+                    self.settings.remove("custom_position_y")
+                    self.settings.endGroup()
             
         # 从三层隔离设置中加载快捷回复设置
         self.settings.beginGroup(self._get_isolation_settings_group())
@@ -477,8 +786,9 @@ class FeedbackUI(QMainWindow):
 
         self._create_ui() # self.config is used here to set initial values
         
-        # 确保窗口位于正确位置
-        QTimer.singleShot(0, self._position_window_bottom_right)
+        # 确保窗口位于正确位置（仅在没有自定义位置时）
+        if not (self.use_custom_position and self.custom_position):
+            QTimer.singleShot(0, self._position_window_bottom_right)
         
         # 初始化图片预览
         QTimer.singleShot(100, self._update_image_preview)
@@ -522,16 +832,121 @@ class FeedbackUI(QMainWindow):
         """将窗口定位在屏幕右下角或用户自定义位置"""
         # 如果有用户保存的自定义位置，优先使用
         if hasattr(self, 'use_custom_position') and self.use_custom_position and self.custom_position:
-            self.move(self.custom_position)
-            return
+            # 验证保存的位置是否在当前可用的屏幕范围内
+            if self._is_position_valid(self.custom_position):
+                self.move(self.custom_position)
+                return
+            else:
+                # 如果保存的位置无效（比如屏幕配置改变），重置为默认位置
+                self.use_custom_position = False
+                self.custom_position = None
+                # 清除无效的保存位置
+                self.settings.beginGroup(self._get_isolation_settings_group())
+                self.settings.setValue("use_custom_position", False)
+                self.settings.remove("custom_position_x")
+                self.settings.remove("custom_position_y")
+                self.settings.endGroup()
             
-        # 否则使用默认的右下角位置
+        # 使用默认的右下角位置
         current_width = self.width()
         current_height = self.height()
         screen_geometry = QApplication.primaryScreen().availableGeometry()
         x = screen_geometry.width() - current_width - 20  # 右边距20像素
         y = screen_geometry.height() - current_height - 40  # 下边距40像素
         self.move(x, y)
+
+    def _is_position_valid(self, position):
+        """检查给定位置是否在当前可用的屏幕范围内"""
+        try:
+            from PySide6.QtWidgets import QApplication
+            from PySide6.QtCore import QPoint, QRect
+            
+            if not position or not isinstance(position, QPoint):
+                return False
+            
+            # 获取所有屏幕的几何信息
+            screens = QApplication.screens()
+            if not screens:
+                return False
+            
+            # 使用默认窗口大小进行验证，避免依赖当前窗口大小
+            default_width, default_height = self.default_size
+            
+            for screen in screens:
+                screen_geometry = screen.availableGeometry()
+                
+                # 检查位置是否在这个屏幕的范围内
+                # 只需要确保窗口的左上角在屏幕范围内，或者窗口与屏幕有重叠
+                pos_x, pos_y = position.x(), position.y()
+                
+                # 方法1：检查左上角是否在屏幕内
+                if screen_geometry.contains(position):
+                    return True
+                
+                # 方法2：检查窗口是否与屏幕有重叠（更宽松的验证）
+                window_rect = QRect(pos_x, pos_y, default_width, default_height)
+                if screen_geometry.intersects(window_rect):
+                    # 确保至少有一部分标题栏可见（只需要50像素宽度）
+                    title_bar_rect = QRect(pos_x, pos_y, min(default_width, 50), 30)
+                    if screen_geometry.intersects(title_bar_rect):
+                        return True
+            
+            return False
+        except Exception:
+            # 如果检查过程中出现任何错误，返回False以使用默认位置
+            return False
+
+    def _fix_invalid_position(self, position):
+        """尝试修复无效的窗口位置，将其移动到最近的有效屏幕"""
+        try:
+            from PySide6.QtWidgets import QApplication
+            from PySide6.QtCore import QPoint
+            
+            if not position:
+                return None
+            
+            screens = QApplication.screens()
+            if not screens:
+                return None
+            
+            pos_x, pos_y = position.x(), position.y()
+            best_screen = None
+            min_distance = float('inf')
+            
+            # 找到距离原位置最近的屏幕
+            for screen in screens:
+                screen_geometry = screen.availableGeometry()
+                
+                # 计算位置到屏幕中心的距离
+                screen_center_x = screen_geometry.x() + screen_geometry.width() // 2
+                screen_center_y = screen_geometry.y() + screen_geometry.height() // 2
+                distance = ((pos_x - screen_center_x) ** 2 + (pos_y - screen_center_y) ** 2) ** 0.5
+                
+                if distance < min_distance:
+                    min_distance = distance
+                    best_screen = screen_geometry
+            
+            if best_screen:
+                # 将位置调整到最近屏幕的可用区域内
+                default_width, default_height = self.default_size
+                
+                # 确保窗口完全在屏幕内
+                new_x = max(best_screen.x(), 
+                           min(pos_x, best_screen.x() + best_screen.width() - default_width))
+                new_y = max(best_screen.y(), 
+                           min(pos_y, best_screen.y() + best_screen.height() - default_height))
+                
+                # 如果调整后的位置与原位置差距太大，说明原位置确实无效
+                if abs(new_x - pos_x) > best_screen.width() or abs(new_y - pos_y) > best_screen.height():
+                    # 位置差距太大，放在屏幕的右下角
+                    new_x = best_screen.x() + best_screen.width() - default_width - 20
+                    new_y = best_screen.y() + best_screen.height() - default_height - 40
+                
+                return QPoint(new_x, new_y)
+            
+            return None
+        except Exception:
+            return None
 
     def _format_windows_path(self, path: str) -> str:
         if sys.platform == "win32":
@@ -770,6 +1185,9 @@ class FeedbackUI(QMainWindow):
         preview_layout.addWidget(self.preview_scroll)
         feedback_layout.addWidget(preview_group)
         
+        # 初始化图片预览状态
+        self._update_image_preview()
+        
         feedback_layout.addLayout(submit_layout)
 
         # 设置feedback_group的最小高度
@@ -785,110 +1203,60 @@ class FeedbackUI(QMainWindow):
         self.tab_widget.addTab(self.feedback_group, "反馈")
         self.tab_widget.addTab(self.command_group, "终端")
         
-        # 创建设置选项卡
+        # 创建设置选项卡 - 重新设计为3个功能区域
         self.settings_group = QGroupBox()
         settings_layout = QVBoxLayout(self.settings_group)
         
-        # 窗口大小设置部分
-        size_group = QGroupBox("窗口大小")
-        size_layout = QVBoxLayout(size_group)
-        
-        # 窗口大小调整按钮
+        # ==================== 窗口设置区域 ====================
+        window_settings_group = QGroupBox("窗口设置")
+        window_settings_layout = QHBoxLayout(window_settings_group)  # 改为水平布局
+
+        # 左列：窗口大小
+        size_column = QVBoxLayout()
+        size_label = QLabel("窗口大小")
+        size_label.setStyleSheet("font-weight: bold; margin-bottom: 5px;")
+        size_column.addWidget(size_label)
+
+        self.size_info_label = QLabel(f"当前: {self.width()} x {self.height()}")
+        self.size_info_label.setStyleSheet("color: gray; font-size: 11px;")
+        size_column.addWidget(self.size_info_label)
+
         self.resize_button = QPushButton("调整窗口大小")
         self.resize_button.clicked.connect(self._cycle_window_size)
-        self.resize_button.setMinimumWidth(200)
-        self.resize_button.setMinimumHeight(40)
-        self.resize_button.setAutoFillBackground(True)
-        self.resize_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        size_layout.addWidget(self.resize_button)
+        self.resize_button.setMinimumHeight(25)
+        size_column.addWidget(self.resize_button)
+
+        # 中列：窗口位置
+        position_column = QVBoxLayout()
+        position_label = QLabel("窗口位置")
+        position_label.setStyleSheet("font-weight: bold; margin-bottom: 5px;")
+        position_column.addWidget(position_label)
         
-        # 添加当前窗口大小的提示标签
-        self.size_info_label = QLabel(f"当前窗口大小: {self.width()} x {self.height()}")
-        size_layout.addWidget(self.size_info_label)
-        
-        # 窗口位置设置部分
-        position_group = QGroupBox("窗口位置")
-        position_layout = QVBoxLayout(position_group)
-        
-        # 自动保存窗口位置的选项
-        self.auto_save_position_check = QCheckBox("关闭窗口时自动保存位置")
-        self.auto_save_position_check.setChecked(True)  # 默认启用
-        position_layout.addWidget(self.auto_save_position_check)
-        
+        self.auto_save_position_check = QCheckBox("自动保存位置")
+        self.auto_save_position_check.setChecked(True)
+        position_column.addWidget(self.auto_save_position_check)
+
         # 从三层隔离设置中读取自动保存窗口位置的选项
         self.settings.beginGroup(self._get_isolation_settings_group())
         auto_save_position = self.settings.value("auto_save_position", True, type=bool)
         self.auto_save_position_check.setChecked(auto_save_position)
-
-        # 从三层隔离设置中读取自动提交设置
-        self.auto_submit_enabled = self.settings.value("auto_submit_enabled", False, type=bool)
-        self.auto_submit_wait_time = self.settings.value("auto_submit_wait_time", 60, type=int)
-        self.auto_fill_first_reply = self.settings.value("auto_fill_first_reply", True, type=bool)
-
         self.settings.endGroup()
-        
+
         # 连接状态变化信号
         self.auto_save_position_check.stateChanged.connect(self._update_auto_save_position)
-        
-        # 手动保存当前窗口位置的按钮
-        save_position_button = QPushButton("立即保存当前窗口位置")
-        save_position_button.clicked.connect(self._save_window_position)
-        save_position_button.setMinimumWidth(200)
-        save_position_button.setMinimumHeight(40)
-        save_position_button.setAutoFillBackground(True)
-        save_position_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        position_layout.addWidget(save_position_button)
-        
-        # 重置窗口位置的按钮
-        reset_position_button = QPushButton("重置窗口位置到屏幕右下角")
+
+        reset_position_button = QPushButton("重置位置")
         reset_position_button.clicked.connect(self._reset_window_position)
-        reset_position_button.setMinimumWidth(200)
-        reset_position_button.setMinimumHeight(40)
-        reset_position_button.setAutoFillBackground(True)
-        reset_position_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        position_layout.addWidget(reset_position_button)
+        reset_position_button.setMinimumHeight(25)
+        position_column.addWidget(reset_position_button)
+
+        # 右列：窗口置顶
+        stay_on_top_column = QVBoxLayout()
+        stay_on_top_label = QLabel("窗口置顶")
+        stay_on_top_label.setStyleSheet("font-weight: bold; margin-bottom: 5px;")
+        stay_on_top_column.addWidget(stay_on_top_label)
         
-        # 自动提交设置部分
-        auto_submit_group = QGroupBox("自动提交设置")
-        auto_submit_layout = QVBoxLayout(auto_submit_group)
-
-        # 启用自动提交的勾选框
-        self.auto_submit_check = QCheckBox("启用自动提交")
-        self.auto_submit_check.setChecked(self.auto_submit_enabled)
-        self.auto_submit_check.stateChanged.connect(self._update_auto_submit_settings)
-        auto_submit_layout.addWidget(self.auto_submit_check)
-
-        # 自动填入第一条预设回复的勾选框
-        self.auto_fill_first_reply_check = QCheckBox("反馈为空时自动填入第一条预设回复")
-        self.auto_fill_first_reply_check.setChecked(self.auto_fill_first_reply)
-        self.auto_fill_first_reply_check.stateChanged.connect(self._update_auto_submit_settings)
-        auto_submit_layout.addWidget(self.auto_fill_first_reply_check)
-
-        # 等待时间设置
-        time_layout = QHBoxLayout()
-        time_label = QLabel("等待时间（秒）:")
-        self.auto_submit_time_input = QLineEdit()
-        self.auto_submit_time_input.setText(str(self.auto_submit_wait_time))
-        self.auto_submit_time_input.setMaximumWidth(100)
-        self.auto_submit_time_input.textChanged.connect(self._update_auto_submit_settings)
-
-        time_layout.addWidget(time_label)
-        time_layout.addWidget(self.auto_submit_time_input)
-        time_layout.addStretch()
-        auto_submit_layout.addLayout(time_layout)
-
-        # 说明文字
-        info_label = QLabel("启用后，打开窗口时将自动开始倒计时，时间到后自动提交反馈。\n点击反馈文本框可停止自动提交。\n如果启用了自动填入功能，当反馈为空时会自动使用第一条预设回复。")
-        info_label.setWordWrap(True)
-        info_label.setStyleSheet("color: gray; font-size: 11px;")
-        auto_submit_layout.addWidget(info_label)
-
-        # 窗口置顶设置部分
-        stay_on_top_group = QGroupBox("窗口置顶设置")
-        stay_on_top_layout = QVBoxLayout(stay_on_top_group)
-
-        # 启动时置顶的勾选框
-        self.stay_on_top_check = QCheckBox("启动时窗口置顶")
+        self.stay_on_top_check = QCheckBox("启动时置顶")
         # 从三层隔离设置中读取置顶选项
         self.settings.beginGroup(self._get_isolation_settings_group())
         stay_on_top_enabled = self.settings.value("stay_on_top_enabled", True, type=bool)
@@ -896,30 +1264,136 @@ class FeedbackUI(QMainWindow):
         self.settings.endGroup()
 
         self.stay_on_top_check.stateChanged.connect(self._update_stay_on_top_setting)
-        stay_on_top_layout.addWidget(self.stay_on_top_check)
+        stay_on_top_column.addWidget(self.stay_on_top_check)
 
-        # 立即切换置顶状态的按钮
-        toggle_top_button = QPushButton("切换窗口置顶状态")
+        toggle_top_button = QPushButton("切换置顶")
         toggle_top_button.clicked.connect(self._toggle_stay_on_top)
-        toggle_top_button.setMinimumWidth(200)
-        toggle_top_button.setMinimumHeight(40)
-        toggle_top_button.setAutoFillBackground(True)
-        toggle_top_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        stay_on_top_layout.addWidget(toggle_top_button)
+        toggle_top_button.setMinimumHeight(25)
+        stay_on_top_column.addWidget(toggle_top_button)
 
-        # 说明文字
-        stay_on_top_info = QLabel("启用后，每次启动时窗口将自动置顶。\n也可以使用按钮立即切换当前窗口的置顶状态。")
-        stay_on_top_info.setWordWrap(True)
-        stay_on_top_info.setStyleSheet("color: gray; font-size: 11px;")
-        stay_on_top_layout.addWidget(stay_on_top_info)
+        # 将三列添加到窗口设置布局，并添加竖线分隔
+        window_settings_layout.addLayout(size_column)
+        
+        # 添加第一条竖线分隔
+        separator1 = QFrame()
+        separator1.setFrameShape(QFrame.VLine)
+        separator1.setFrameShadow(QFrame.Sunken)
+        separator1.setStyleSheet("color: #cccccc;")
+        window_settings_layout.addWidget(separator1)
+        
+        window_settings_layout.addLayout(position_column)
+        
+        # 添加第二条竖线分隔
+        separator2 = QFrame()
+        separator2.setFrameShape(QFrame.VLine)
+        separator2.setFrameShadow(QFrame.Sunken)
+        separator2.setStyleSheet("color: #cccccc;")
+        window_settings_layout.addWidget(separator2)
+        
+        window_settings_layout.addLayout(stay_on_top_column)
+        
+        settings_layout.addWidget(window_settings_group)
+        
+        # ==================== 自动提交设置和标题自定义区域 ====================
+        # 创建水平布局来放置两个设置区域
+        auto_title_layout = QHBoxLayout()
 
-        # 将分组添加到设置布局
-        settings_layout.addWidget(size_group)
-        settings_layout.addWidget(position_group)
-        settings_layout.addWidget(auto_submit_group)
-        settings_layout.addWidget(stay_on_top_group)
+        # 左侧：自动提交设置
+        auto_submit_settings_group = QGroupBox("自动提交设置")
+        auto_submit_settings_layout = QVBoxLayout(auto_submit_settings_group)
+
+        # 从三层隔离设置中读取自动提交设置
+        self.settings.beginGroup(self._get_isolation_settings_group())
+        self.auto_submit_enabled = self.settings.value("auto_submit_enabled", False, type=bool)
+        self.auto_submit_wait_time = self.settings.value("auto_submit_wait_time", 60, type=int)
+        self.auto_fill_first_reply = self.settings.value("auto_fill_first_reply", True, type=bool)
+        self.settings.endGroup()
+
+        # 启用自动提交的勾选框
+        self.auto_submit_check = QCheckBox("启用自动提交")
+        self.auto_submit_check.setChecked(self.auto_submit_enabled)
+        self.auto_submit_check.stateChanged.connect(self._update_auto_submit_settings)
+        auto_submit_settings_layout.addWidget(self.auto_submit_check)
+
+        # 自动填入第一条预设回复的勾选框
+        self.auto_fill_first_reply_check = QCheckBox("空时自动填入预设")
+        self.auto_fill_first_reply_check.setChecked(self.auto_fill_first_reply)
+        self.auto_fill_first_reply_check.stateChanged.connect(self._update_auto_submit_settings)
+        auto_submit_settings_layout.addWidget(self.auto_fill_first_reply_check)
+
+        # 等待时间设置
+        time_layout = QHBoxLayout()
+        time_label = QLabel("等待时间:")
+        self.auto_submit_time_input = QLineEdit()
+        self.auto_submit_time_input.setText(str(self.auto_submit_wait_time))
+        self.auto_submit_time_input.setMaximumWidth(60)
+        self.auto_submit_time_input.textChanged.connect(self._update_auto_submit_settings)
+        time_unit_label = QLabel("秒")
+
+        time_layout.addWidget(time_label)
+        time_layout.addWidget(self.auto_submit_time_input)
+        time_layout.addWidget(time_unit_label)
+        time_layout.addStretch()
+        auto_submit_settings_layout.addLayout(time_layout)
+
+        # 右侧：标题自定义
+        title_group = QGroupBox("标题自定义")
+        title_layout = QVBoxLayout(title_group)
+
+        # 创建标题自定义控件
+        self.title_customization_widget = TitleCustomizationWidget()
+        self.title_customization_widget.title_changed.connect(self._on_custom_title_changed)
+        self.title_customization_widget.title_mode_changed.connect(self._on_title_mode_changed)
+
+        # 设置当前的标题模式和内容
+        current_title_mode = self.personalization_manager.load_title_mode()
+        current_custom_title = self.personalization_manager.load_custom_title()
+        self.title_customization_widget.set_title_mode(current_title_mode)
+        self.title_customization_widget.set_custom_title(current_custom_title)
+        self.title_customization_widget.update_preview_with_isolation_key(self.isolation_key)
+
+        title_layout.addWidget(self.title_customization_widget)
+
+        # 将两个组添加到水平布局
+        auto_title_layout.addWidget(auto_submit_settings_group)
+        auto_title_layout.addWidget(title_group)
+
+        settings_layout.addLayout(auto_title_layout)
+        
+        # ==================== 个性化设置区域 ====================
+        personalization_group = QGroupBox("个性化设置")
+        personalization_layout = QVBoxLayout(personalization_group)
+
+        # 窗口底色选择
+        color_group = QGroupBox("窗口底色")
+        color_layout = QVBoxLayout(color_group)
+
+        # 创建颜色选择控件
+        self.color_selection_widget = ColorSelectionWidget()
+        self.color_selection_widget.color_changed.connect(self._on_border_color_changed)
+
+        # 设置当前选中的颜色
+        current_color = self.personalization_manager.load_border_color()
+        self.color_selection_widget.set_selected_color(current_color)
+
+        color_layout.addWidget(self.color_selection_widget)
+
+        # 颜色重置按钮
+        reset_color_button = QPushButton("重置为默认白色")
+        reset_color_button.clicked.connect(lambda: self._on_border_color_changed("#ffffff"))
+        reset_color_button.setMinimumHeight(30)
+        color_layout.addWidget(reset_color_button)
+
+        personalization_layout.addWidget(color_group)
+
+        settings_layout.addWidget(personalization_group)
+        
+        # 添加弹性空间
         settings_layout.addStretch()
         
+        # 添加设置选项卡
+        self.tab_widget.addTab(self.settings_group, "设置")
+
         # 创建工具选项卡
         self.tools_group = QGroupBox()
         tools_layout = QVBoxLayout(self.tools_group)
@@ -946,9 +1420,6 @@ class FeedbackUI(QMainWindow):
         # 添加到工具布局
         tools_layout.addWidget(git_commit_group)
         tools_layout.addStretch()
-
-        # 添加设置选项卡
-        self.tab_widget.addTab(self.settings_group, "设置")
 
         # 添加工具选项卡
         self.tab_widget.addTab(self.tools_group, "工具")
@@ -1599,28 +2070,46 @@ AI应用: {conv.client_name}
            
     def _upload_image(self):
         """上传图片"""
-        # 打开文件选择对话框，限制为图片文件
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "选择图片",
-            "",
-            "图片文件 (*.png *.jpg *.jpeg *.gif *.bmp)"
-        )
-        if file_path:
-            # 复制图片到temp目录
-            extension = os.path.splitext(file_path)[1][1:].lower()
-            new_filename = generate_random_filename(extension)
-            new_filepath = os.path.join(self.temp_dir, new_filename)
-            
-            # 读取原图片并保存到新位置
-            pixmap = QPixmap(file_path)
-            pixmap.save(new_filepath)
-            
-            # 添加到上传列表
-            self.uploaded_images.append(new_filepath)
-            
-            # 更新预览
-            self._update_image_preview()
+        try:
+            # 打开文件选择对话框，限制为图片文件
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "选择图片",
+                "",
+                "图片文件 (*.png *.jpg *.jpeg *.gif *.bmp)"
+            )
+            if file_path:
+                # 检查文件是否存在
+                if not os.path.exists(file_path):
+                    QMessageBox.warning(self, "错误", "选择的文件不存在")
+                    return
+                
+                # 复制图片到temp目录
+                extension = os.path.splitext(file_path)[1][1:].lower()
+                if not extension:
+                    extension = "png"  # 默认扩展名
+                new_filename = generate_random_filename(extension)
+                new_filepath = os.path.join(self.temp_dir, new_filename)
+                
+                # 读取原图片并保存到新位置
+                pixmap = QPixmap(file_path)
+                if pixmap.isNull():
+                    QMessageBox.warning(self, "错误", "无法加载选择的图片文件")
+                    return
+                
+                if pixmap.save(new_filepath):
+                    # 添加到上传列表
+                    self.uploaded_images.append(new_filepath)
+                    
+                    # 更新预览
+                    self._update_image_preview()
+                else:
+                    QMessageBox.warning(self, "错误", "保存图片到临时目录失败")
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"上传图片时发生错误: {str(e)}")
+            print(f"Upload image error: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _get_clipboard_image(self, show_message=True):
         """从剪贴板获取图片
@@ -1631,101 +2120,149 @@ AI应用: {conv.client_name}
         Returns:
             bool: 是否成功获取并处理了图片
         """
-        clipboard = QApplication.clipboard()
-        mime_data = clipboard.mimeData()
-        
-        if mime_data.hasImage():
-            # 从剪贴板获取图片
-            image = QImage(clipboard.image())
-            if not image.isNull():
-                # 保存图片到临时目录
-                filename = generate_random_filename()
-                filepath = os.path.join(self.temp_dir, filename)
-                
-                # 保存图片
-                if image.save(filepath):
-                    self.uploaded_images.append(filepath)
-                    self._update_image_preview()
-                    if show_message:
-                        QMessageBox.information(self, "成功", "已从剪贴板获取图片")
-                    return True
+        try:
+            clipboard = QApplication.clipboard()
+            mime_data = clipboard.mimeData()
+            
+            if mime_data.hasImage():
+                # 从剪贴板获取图片
+                image = QImage(clipboard.image())
+                if not image.isNull():
+                    # 保存图片到临时目录
+                    filename = generate_random_filename()
+                    filepath = os.path.join(self.temp_dir, filename)
+                    
+                    # 保存图片
+                    if image.save(filepath):
+                        self.uploaded_images.append(filepath)
+                        self._update_image_preview()
+                        if show_message:
+                            QMessageBox.information(self, "成功", "已从剪贴板获取图片")
+                        return True
+                    else:
+                        if show_message:
+                            QMessageBox.warning(self, "错误", "保存图片失败")
+                        return False
                 else:
                     if show_message:
-                        QMessageBox.warning(self, "错误", "保存图片失败")
+                        QMessageBox.warning(self, "错误", "剪贴板中的图片无效")
                     return False
             else:
                 if show_message:
-                    QMessageBox.warning(self, "错误", "剪贴板中的图片无效")
+                    QMessageBox.warning(self, "错误", "剪贴板中没有图片")
                 return False
-        else:
+        except Exception as e:
             if show_message:
-                QMessageBox.warning(self, "错误", "剪贴板中没有图片")
+                QMessageBox.critical(self, "错误", f"从剪贴板获取图片时发生错误: {str(e)}")
+            print(f"Clipboard image error: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def _update_image_preview(self):
         """更新图片预览区域"""
-        # 设置预览区域的可见性：有图片才显示
-        self.preview_group.setVisible(bool(self.uploaded_images))
-        
-        # 清除现有预览
-        for widget in self.image_previews:
-            widget.deleteLater()
-        self.image_previews = []
-        self.image_labels = []
-        
-        # 如果没有图片，显示提示
-        if not self.uploaded_images:
-            label = QLabel("暂无图片")
-            label.setAlignment(Qt.AlignCenter)
-            self.preview_grid.addWidget(label, 0, 0)
-            self.image_previews.append(label)
-            return
-        
-        # 添加新的预览
-        row, col = 0, 0
-        max_cols = 3  # 每行最多显示3张图片
-        
-        for idx, image_path in enumerate(self.uploaded_images):
-            # 创建图片容器
-            frame = QFrame()
-            frame.setFrameShape(QFrame.StyledPanel)
-            frame.setFixedSize(100, 130)  # 固定大小
-            frame_layout = QVBoxLayout(frame)
-            frame_layout.setContentsMargins(5, 5, 5, 5)
+        try:
+            # 设置预览区域的可见性：有图片才显示
+            has_images = bool(self.uploaded_images)
+            self.preview_group.setVisible(has_images)
             
-            # 创建图片标签
-            image_label = QLabel()
-            image_label.setAlignment(Qt.AlignCenter)
-            pixmap = QPixmap(image_path)
-            if not pixmap.isNull():
-                pixmap = pixmap.scaled(80, 80, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                image_label.setPixmap(pixmap)
-                image_label.setToolTip(image_path)
+            # 清除现有预览
+            for widget in self.image_previews:
+                widget.deleteLater()
+            self.image_previews = []
+            self.image_labels = []
+            
+            # 如果没有图片，显示提示
+            if not self.uploaded_images:
+                label = QLabel("暂无图片")
+                label.setAlignment(Qt.AlignCenter)
+                self.preview_grid.addWidget(label, 0, 0)
+                self.image_previews.append(label)
+                return
+            
+            # 添加新的预览
+            row, col = 0, 0
+            max_cols = 3  # 每行最多显示3张图片
+            
+            for idx, image_path in enumerate(self.uploaded_images):
+                # 检查图片文件是否存在
+                if not os.path.exists(image_path):
+                    print(f"Warning: Image file not found: {image_path}")
+                    continue
                 
-                # 设置点击事件
-                image_label.mousePressEvent = lambda event, path=image_path: self._preview_image(path)
-            else:
-                image_label.setText("加载失败")
+                # 创建图片容器
+                frame = QFrame()
+                frame.setFrameShape(QFrame.StyledPanel)
+                frame.setFixedSize(100, 130)  # 固定大小
+                frame_layout = QVBoxLayout(frame)
+                frame_layout.setContentsMargins(5, 5, 5, 5)
+                
+                # 创建图片标签
+                image_label = QLabel()
+                image_label.setAlignment(Qt.AlignCenter)
+                pixmap = QPixmap(image_path)
+                if not pixmap.isNull():
+                    pixmap = pixmap.scaled(80, 80, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    image_label.setPixmap(pixmap)
+                    image_label.setToolTip(image_path)
+                    
+                    # 设置点击事件
+                    image_label.mousePressEvent = lambda event, path=image_path: self._preview_image(path)
+                else:
+                    image_label.setText("加载失败")
+                
+                frame_layout.addWidget(image_label)
+                self.image_labels.append(image_label)
+                
+                # 添加删除按钮
+                delete_button = QPushButton("删除")
+                delete_button.setProperty("image_index", idx)
+                delete_button.clicked.connect(lambda checked, idx=idx: self._delete_image(idx))
+                delete_button.setAutoFillBackground(True)  # 设置自动填充背景
+                frame_layout.addWidget(delete_button)
+                
+                # 添加到网格布局
+                self.preview_grid.addWidget(frame, row, col)
+                self.image_previews.append(frame)
+                
+                # 更新行列位置
+                col += 1
+                if col >= max_cols:
+                    col = 0
+                    row += 1
             
-            frame_layout.addWidget(image_label)
-            self.image_labels.append(image_label)
-            
-            # 添加删除按钮
-            delete_button = QPushButton("删除")
-            delete_button.setProperty("image_index", idx)
-            delete_button.clicked.connect(lambda checked, idx=idx: self._delete_image(idx))
-            delete_button.setAutoFillBackground(True)  # 设置自动填充背景
-            frame_layout.addWidget(delete_button)
-            
-            # 添加到网格布局
-            self.preview_grid.addWidget(frame, row, col)
-            self.image_previews.append(frame)
-            
-            # 更新行列位置
-            col += 1
-            if col >= max_cols:
-                col = 0
-                row += 1
+            # 确保预览组在有图片时可见
+            if self.uploaded_images:
+                self.preview_group.setVisible(True)
+                self.preview_group.show()
+                
+        except Exception as e:
+            print(f"Error updating image preview: {e}")
+            import traceback
+            traceback.print_exc()
+
+    
+    def _debug_image_functionality(self):
+        """调试图片功能状态"""
+        print("=== Image Functionality Debug Info ===")
+        print(f"Temp directory: {self.temp_dir}")
+        print(f"Temp directory exists: {os.path.exists(self.temp_dir)}")
+        print(f"Uploaded images count: {len(self.uploaded_images)}")
+        print(f"Uploaded images: {self.uploaded_images}")
+        print(f"Preview group visible: {self.preview_group.isVisible()}")
+        print(f"Preview group parent visible: {self.preview_group.parent().isVisible() if self.preview_group.parent() else 'No parent'}")
+        print(f"Image previews count: {len(self.image_previews)}")
+        print(f"Image labels count: {len(self.image_labels)}")
+        
+        # 检查按钮状态
+        upload_buttons = self.findChildren(QPushButton)
+        for button in upload_buttons:
+            if button.text() == "上传图片":
+                print(f"Upload button visible: {button.isVisible()}, enabled: {button.isEnabled()}")
+            elif button.text() == "从剪贴板获取图片":
+                print(f"Clipboard button visible: {button.isVisible()}, enabled: {button.isEnabled()}")
+        
+        print("=== End Debug Info ===")
     
     def _preview_image(self, image_path):
         """在对话框中预览大图"""
@@ -2109,12 +2646,91 @@ AI应用: {conv.client_name}
             if hasattr(self, 'git_status_timer'):
                 self.git_status_timer.stop()
 
+    def _on_border_color_changed(self, color: str):
+        """处理边框颜色变化"""
+        # 保存颜色设置
+        self.personalization_manager.save_border_color(color)
+        # 应用颜色到当前窗口
+        self.personalization_manager.apply_border_color(color, self)
+        # 更新颜色选择控件的状态
+        self.color_selection_widget.set_selected_color(color)
+
+    def _on_custom_title_changed(self, title: str):
+        """处理自定义标题变化"""
+        # 保存标题设置
+        self.personalization_manager.save_custom_title(title)
+        # 应用标题到当前窗口
+        title_mode = self.personalization_manager.load_title_mode()
+        self.personalization_manager.apply_window_title(title_mode, title, self, self.isolation_key)
+
+    def _on_title_mode_changed(self, mode: str):
+        """处理标题模式变化"""
+        # 保存模式设置
+        self.personalization_manager.save_title_mode(mode)
+        # 应用标题到当前窗口
+        custom_title = self.personalization_manager.load_custom_title()
+        self.personalization_manager.apply_window_title(mode, custom_title, self, self.isolation_key)
+
+    def _reset_title_settings(self):
+        """重置标题设置为默认值"""
+        # 重置为动态模式和空自定义标题
+        self.personalization_manager.save_title_mode("dynamic")
+        self.personalization_manager.save_custom_title("")
+        
+        # 更新UI控件
+        self.title_customization_widget.set_title_mode("dynamic")
+        self.title_customization_widget.set_custom_title("")
+        
+        # 应用到窗口
+        self.personalization_manager.apply_window_title("dynamic", "", self, self.isolation_key)
+
     def resizeEvent(self, event):
         """重写resize事件，在窗口大小变化时更新大小信息标签"""
         super().resizeEvent(event)
         # 使用计时器延迟更新，避免频繁更新
         if hasattr(self, 'resize_event_timer'):
             self.resize_event_timer.start(200)  # 200毫秒后更新
+
+    def moveEvent(self, event):
+        """重写move事件，在窗口位置变化时自动保存位置（如果启用了自动保存）"""
+        super().moveEvent(event)
+        
+        # 检查是否启用了自动保存位置功能
+        if hasattr(self, 'settings') and hasattr(self, '_get_isolation_settings_group'):
+            self.settings.beginGroup(self._get_isolation_settings_group())
+            auto_save_position = self.settings.value("auto_save_position", True, type=bool)
+            self.settings.endGroup()
+            
+            if auto_save_position:
+                # 使用计时器延迟保存，避免拖动过程中频繁保存
+                if not hasattr(self, 'move_event_timer'):
+                    from PySide6.QtCore import QTimer
+                    self.move_event_timer = QTimer()
+                    self.move_event_timer.setSingleShot(True)
+                    self.move_event_timer.timeout.connect(self._save_position_from_move)
+                
+                self.move_event_timer.start(500)  # 500毫秒后保存位置
+    
+    def _save_position_from_move(self):
+        """从移动事件中保存窗口位置"""
+        try:
+            pos = self.pos()
+            self.settings.beginGroup(self._get_isolation_settings_group())
+            self.settings.setValue("custom_position_x", pos.x())
+            self.settings.setValue("custom_position_y", pos.y())
+            self.settings.setValue("use_custom_position", True)
+            self.settings.endGroup()
+            
+            # 强制同步设置到磁盘
+            self.settings.sync()
+            
+            # 更新内部状态
+            self.use_custom_position = True
+            self.custom_position = pos
+            
+        except Exception as e:
+            # 静默处理错误，避免影响用户体验
+            pass
 
     def run(self) -> FeedbackResult:
         self.show()
