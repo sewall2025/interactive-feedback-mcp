@@ -345,10 +345,15 @@ class LogSignals(QObject):
     append_log = Signal(str)
 
 class FeedbackUI(QMainWindow):
-    def __init__(self, project_directory: str, prompt: str):
+    def __init__(self, project_directory: str, prompt: str, worker: str = "default", client_name: str = "unknown-client"):
         super().__init__()
         self.project_directory = project_directory
         self.prompt = prompt
+        self.worker = worker
+        self.client_name = client_name
+        
+        # 生成三层隔离键
+        self.isolation_key = self._generate_isolation_key(client_name, worker, project_directory)
 
         # 设置应用程序使用Fusion样式，这是一个跨平台的样式，最接近原生外观
         QApplication.setStyle("Fusion")
@@ -386,7 +391,9 @@ class FeedbackUI(QMainWindow):
         self.size_multiplier = 1
         self.size_states = [1, 2, 3]  # 窗口大小倍数状态
 
-        self.setWindowTitle("AI超级助手 MCP 微信:261077")
+        # 设置动态窗口标题
+        dynamic_title = f"Interactive: {self.isolation_key}"
+        self.setWindowTitle(dynamic_title)
         script_dir = os.path.dirname(os.path.abspath(__file__))
         icon_path = os.path.join(script_dir, "images", "feedback.png")
         self.setWindowIcon(QIcon(icon_path))
@@ -396,8 +403,8 @@ class FeedbackUI(QMainWindow):
 
         self.settings = QSettings("InteractiveFeedbackMCP", "InteractiveFeedbackMCP")
 
-        # 根据设置决定是否启用窗口置顶
-        self.settings.beginGroup("MainWindow_General")
+        # 从三层隔离设置中加载窗口置顶设置
+        self.settings.beginGroup(self._get_isolation_settings_group())
         stay_on_top_enabled = self.settings.value("stay_on_top_enabled", True, type=bool)
         self.settings.endGroup()
 
@@ -418,7 +425,8 @@ class FeedbackUI(QMainWindow):
         if state:
             self.restoreState(state)
             
-        # 加载窗口大小设置
+        # 从三层隔离设置中加载窗口大小设置
+        self.settings.beginGroup(self._get_isolation_settings_group())
         custom_width = self.settings.value("custom_width", -1, type=int)
         custom_height = self.settings.value("custom_height", -1, type=int)
         if custom_width > 0 and custom_height > 0:
@@ -435,20 +443,21 @@ class FeedbackUI(QMainWindow):
         if custom_x >= 0 and custom_y >= 0:
             from PySide6.QtCore import QPoint
             self.custom_position = QPoint(custom_x, custom_y)
+        self.settings.endGroup()
             
-        # 加载快捷回复设置
+        # 从三层隔离设置中加载快捷回复设置
+        self.settings.beginGroup(self._get_isolation_settings_group())
         self.quick_replies = self.settings.value("quick_replies", [], type=list)
         # 如果没有保存的快捷回复，使用默认值
         if not self.quick_replies:
             self.quick_replies = ["继续", "结束对话","使用MODE: RESEARCH重新开始"]
-        self.settings.endGroup() # End "MainWindow_General" group
+        self.settings.endGroup() # End isolation settings group
         
-        # Load project-specific settings (command, auto-execute, selected tab index)
-        self.project_group_name = get_project_settings_group(self.project_directory)
-        self.settings.beginGroup(self.project_group_name)
+        # Load settings from three-layer isolation (command, auto-execute, selected tab index)
+        self.settings.beginGroup(self._get_isolation_settings_group())
         loaded_run_command = self.settings.value("run_command", "", type=str)
         loaded_execute_auto = self.settings.value("execute_automatically", False, type=bool)
-        self.settings.endGroup() # End project-specific group
+        self.settings.endGroup() # End isolation settings group
         
         self.config: FeedbackConfig = {
             "run_command": loaded_run_command,
@@ -470,6 +479,34 @@ class FeedbackUI(QMainWindow):
 
         if self.config.get("execute_automatically", False):
             self._run_command()
+
+    def _generate_isolation_key(self, client_name: str, worker: str, project_directory: str) -> str:
+        """生成三层隔离键"""
+        import re
+        import hashlib
+        
+        # Key1: Client name from MCP clientInfo (清理特殊字符)
+        key1 = re.sub(r'[^\w\-]', '_', client_name.lower())
+        
+        # Key2: Worker identifier (清理特殊字符，已验证长度<=40)
+        key2 = re.sub(r'[^\w\-]', '_', worker.lower())
+        
+        # Key3: Project name (路径最后一节，清理特殊字符)
+        project_name = os.path.basename(project_directory.rstrip("/\\"))
+        key3 = re.sub(r'[^\w\-]', '_', project_name.lower())
+        
+        # 组合三层键，限制总长度
+        isolation_key = f"{key1}_{key2}_{key3}"
+        if len(isolation_key) > 100:  # 防止文件系统限制
+            # 使用哈希缩短过长的键
+            hash_suffix = hashlib.md5(isolation_key.encode()).hexdigest()[:8]
+            isolation_key = f"{key1[:20]}_{key2[:20]}_{key3[:20]}_{hash_suffix}"
+        
+        return isolation_key
+    
+    def _get_isolation_settings_group(self) -> str:
+        """获取三层隔离设置组名"""
+        return f"ThreeLayer_{self.isolation_key}"
 
     def _position_window_bottom_right(self):
         """将窗口定位在屏幕右下角或用户自定义位置"""
@@ -768,12 +805,12 @@ class FeedbackUI(QMainWindow):
         self.auto_save_position_check.setChecked(True)  # 默认启用
         position_layout.addWidget(self.auto_save_position_check)
         
-        # 从设置中读取自动保存窗口位置的选项（如果有）
-        self.settings.beginGroup("MainWindow_General")
+        # 从三层隔离设置中读取自动保存窗口位置的选项
+        self.settings.beginGroup(self._get_isolation_settings_group())
         auto_save_position = self.settings.value("auto_save_position", True, type=bool)
         self.auto_save_position_check.setChecked(auto_save_position)
 
-        # 读取自动提交设置
+        # 从三层隔离设置中读取自动提交设置
         self.auto_submit_enabled = self.settings.value("auto_submit_enabled", False, type=bool)
         self.auto_submit_wait_time = self.settings.value("auto_submit_wait_time", 60, type=int)
         self.auto_fill_first_reply = self.settings.value("auto_fill_first_reply", True, type=bool)
@@ -842,8 +879,8 @@ class FeedbackUI(QMainWindow):
 
         # 启动时置顶的勾选框
         self.stay_on_top_check = QCheckBox("启动时窗口置顶")
-        # 从设置中读取置顶选项
-        self.settings.beginGroup("MainWindow_General")
+        # 从三层隔离设置中读取置顶选项
+        self.settings.beginGroup(self._get_isolation_settings_group())
         stay_on_top_enabled = self.settings.value("stay_on_top_enabled", True, type=bool)
         self.stay_on_top_check.setChecked(stay_on_top_enabled)
         self.settings.endGroup()
@@ -906,8 +943,11 @@ class FeedbackUI(QMainWindow):
         # 添加工具选项卡
         self.tab_widget.addTab(self.tools_group, "工具")
 
-        # 默认选择反馈选项卡（索引0）
-        self.tab_widget.setCurrentIndex(0)
+        # 从三层隔离设置中加载选项卡索引
+        self.settings.beginGroup(self._get_isolation_settings_group())
+        selected_tab_index = self.settings.value("selectedTabIndex", 0, type=int)
+        self.settings.endGroup()
+        self.tab_widget.setCurrentIndex(selected_tab_index)
         
         # 连接选项卡切换信号，保存当前选中的选项卡
         self.tab_widget.currentChanged.connect(self._tab_changed)
@@ -958,8 +998,8 @@ class FeedbackUI(QMainWindow):
             
     def _tab_changed(self, index):
         """处理选项卡切换事件"""
-        # 保存当前选中的选项卡索引
-        self.settings.beginGroup(self.project_group_name)
+        # 保存当前选中的选项卡索引到三层隔离设置
+        self.settings.beginGroup(self._get_isolation_settings_group())
         self.settings.setValue("selectedTabIndex", index)
         self.settings.endGroup()
         
@@ -1084,8 +1124,8 @@ class FeedbackUI(QMainWindow):
             for reply in self.quick_replies:
                 self.quick_reply_combo.addItem(reply)
                 
-            # 保存到设置
-            self.settings.beginGroup("MainWindow_General")
+            # 保存到三层隔离设置
+            self.settings.beginGroup(self._get_isolation_settings_group())
             self.settings.setValue("quick_replies", self.quick_replies)
             self.settings.endGroup()
            
@@ -1268,17 +1308,17 @@ class FeedbackUI(QMainWindow):
         self.log_text.clear()
         
     def _save_config(self):
-        # Save run_command and execute_automatically to QSettings under project group
-        self.settings.beginGroup(self.project_group_name)
+        # Save run_command and execute_automatically to QSettings under three-layer isolation
+        self.settings.beginGroup(self._get_isolation_settings_group())
         self.settings.setValue("run_command", self.config["run_command"])
         self.settings.setValue("execute_automatically", self.config["execute_automatically"])
         self.settings.endGroup()
         
     def _save_window_position(self):
         """保存当前窗口位置到用户设置"""
-        # 保存窗口位置到通用设置组
+        # 保存窗口位置到三层隔离设置组
         pos = self.pos()
-        self.settings.beginGroup("MainWindow_General")
+        self.settings.beginGroup(self._get_isolation_settings_group())
         self.settings.setValue("custom_position_x", pos.x())
         self.settings.setValue("custom_position_y", pos.y())
         self.settings.setValue("use_custom_position", True)
@@ -1292,10 +1332,14 @@ class FeedbackUI(QMainWindow):
         self._show_status_message(f"已保存窗口位置 ({pos.x()}, {pos.y()})")
 
     def closeEvent(self, event):
-        # Save general UI settings for the main window (geometry, state)
+        # Save global UI settings (only Qt system-level settings)
         self.settings.beginGroup("MainWindow_General")
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("windowState", self.saveState())
+        self.settings.endGroup()
+        
+        # Save three-layer isolation settings
+        self.settings.beginGroup(self._get_isolation_settings_group())
         
         # 保存当前窗口实际大小
         self.settings.setValue("custom_width", self.width())
@@ -1319,15 +1363,14 @@ class FeedbackUI(QMainWindow):
         if hasattr(self, 'stay_on_top_check'):
             self.settings.setValue("stay_on_top_enabled", self.stay_on_top_check.isChecked())
 
-        self.settings.endGroup()
-
         # 保存当前选中的选项卡索引
-        self.settings.beginGroup(self.project_group_name)
         self.settings.setValue("selectedTabIndex", self.tab_widget.currentIndex())
+        
+        # 保存项目特定设置（run_command, execute_automatically）
+        self.settings.setValue("run_command", self.config["run_command"])
+        self.settings.setValue("execute_automatically", self.config["execute_automatically"])
+        
         self.settings.endGroup()
-
-        # 自动保存配置，确保"下次自动执行"选项等设置被保存
-        self._save_config()
 
         if self.process:
             kill_tree(self.process)
@@ -1358,7 +1401,7 @@ class FeedbackUI(QMainWindow):
     def _update_auto_save_position(self, state):
         """更新自动保存窗口位置的设置"""
         is_checked = (state == Qt.Checked)
-        self.settings.beginGroup("MainWindow_General")
+        self.settings.beginGroup(self._get_isolation_settings_group())
         self.settings.setValue("auto_save_position", is_checked)
         self.settings.endGroup()
 
@@ -1389,8 +1432,8 @@ class FeedbackUI(QMainWindow):
             self.auto_submit_wait_time = 60
             self.auto_submit_time_input.setText("60")
 
-        # 保存设置
-        self.settings.beginGroup("MainWindow_General")
+        # 保存设置到三层隔离
+        self.settings.beginGroup(self._get_isolation_settings_group())
         self.settings.setValue("auto_submit_enabled", self.auto_submit_enabled)
         self.settings.setValue("auto_submit_wait_time", self.auto_submit_wait_time)
         self.settings.setValue("auto_fill_first_reply", self.auto_fill_first_reply)
@@ -1461,7 +1504,7 @@ class FeedbackUI(QMainWindow):
     def _update_stay_on_top_setting(self, state):
         """更新窗口置顶设置"""
         is_checked = (state == Qt.Checked)
-        self.settings.beginGroup("MainWindow_General")
+        self.settings.beginGroup(self._get_isolation_settings_group())
         self.settings.setValue("stay_on_top_enabled", is_checked)
         self.settings.endGroup()
 
@@ -1492,7 +1535,7 @@ class FeedbackUI(QMainWindow):
         self.custom_position = None
         
         # 更新设置
-        self.settings.beginGroup("MainWindow_General")
+        self.settings.beginGroup(self._get_isolation_settings_group())
         self.settings.setValue("use_custom_position", False)
         self.settings.remove("custom_position_x")
         self.settings.remove("custom_position_y")
@@ -1642,13 +1685,13 @@ def get_project_settings_group(project_dir: str) -> str:
     full_hash = hashlib.md5(project_dir.encode('utf-8')).hexdigest()[:8]
     return f"{basename}_{full_hash}"
 
-def feedback_ui(project_directory: str, prompt: str, output_file: Optional[str] = None) -> Optional[FeedbackResult]:
+def feedback_ui(project_directory: str, prompt: str, output_file: Optional[str] = None, worker: str = "default", client_name: str = "unknown-client") -> Optional[FeedbackResult]:
     app = QApplication.instance() or QApplication()
     
     # 在提示文本中添加AI助手信息
     ai_prompt = f"AI助手: {prompt}"
     
-    ui = FeedbackUI(project_directory, ai_prompt)
+    ui = FeedbackUI(project_directory, ai_prompt, worker=worker, client_name=client_name)
     result = ui.run()
 
     if output_file and result:
@@ -1666,9 +1709,11 @@ if __name__ == "__main__":
     parser.add_argument("--project-directory", default=os.getcwd(), help="The project directory to run the command in")
     parser.add_argument("--prompt", default="I implemented the changes you requested.", help="The prompt to show to the user")
     parser.add_argument("--output-file", help="Path to save the feedback result as JSON")
+    parser.add_argument("--worker", default="default", help="Worker environment identifier (max 40 chars)")
+    parser.add_argument("--client-name", default="unknown-client", help="MCP client name for isolation")
     args = parser.parse_args()
 
-    result = feedback_ui(args.project_directory, args.prompt, args.output_file)
+    result = feedback_ui(args.project_directory, args.prompt, args.output_file, args.worker, args.client_name)
     if result:
         feedback_result = {
             "command_logs": result['command_logs'],

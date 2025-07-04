@@ -12,13 +12,13 @@ from fastmcp import Image
 from typing import List, Union
 from typing import Annotated, Dict
 
-from fastmcp import FastMCP
+from fastmcp import FastMCP, Context
 from pydantic import Field
 
 # The log_level is necessary for Cline to work: https://github.com/jlowin/fastmcp/issues/81
 mcp = FastMCP("Interactive Feedback MCP", log_level="ERROR")
 
-def launch_feedback_ui(project_directory: str, summary: str) -> dict[str, str]:
+def launch_feedback_ui(project_directory: str, summary: str, worker: str = "default", client_name: str = "unknown-client") -> dict[str, str]:
     # Create a temporary file for the feedback result
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
         output_file = tmp.name
@@ -28,14 +28,16 @@ def launch_feedback_ui(project_directory: str, summary: str) -> dict[str, str]:
         script_dir = os.path.dirname(os.path.abspath(__file__))
         feedback_ui_path = os.path.join(script_dir, "feedback_ui.py")
 
-        # Run feedback_ui.py as a separate process
+        # Run feedback_ui.py as a separate process with isolation parameters
         args = [
             sys.executable,
             "-u",
             feedback_ui_path,
             "--project-directory", project_directory,
             "--prompt", summary,
-            "--output-file", output_file
+            "--output-file", output_file,
+            "--worker", worker,
+            "--client-name", client_name
         ]
         result = subprocess.run(
             args,
@@ -66,10 +68,39 @@ def first_line(text: str) -> str:
 def interactive_feedback(
     project_directory: Annotated[str, Field(description="Full path to the project directory")],
     summary: Annotated[str, Field(description="Short, one-line summary of the changes")],
+    ctx: Context
 ) -> Dict[str, Union[str, List]]:
     """Request interactive feedback for a given project directory and summary"""
-
-    result_dict = launch_feedback_ui(first_line(project_directory), first_line(summary))
+    
+    # 从环境变量获取worker参数，默认为'default'
+    worker = os.environ.get('worker', 'default')
+    
+    # 验证worker参数长度限制（最多40字符）
+    if len(worker) > 40:
+        raise ValueError(f"Worker identifier too long: {len(worker)} chars (max 40)")
+    
+    # 从MCP上下文获取真实的客户端信息
+    client_name = 'unknown-client'
+    try:
+        # 尝试从session.client_params.clientInfo获取客户端名称
+        if hasattr(ctx, 'session') and hasattr(ctx.session, 'client_params'):
+            client_params = ctx.session.client_params
+            if hasattr(client_params, 'clientInfo') and client_params.clientInfo:
+                client_info = client_params.clientInfo
+                if hasattr(client_info, 'name') and client_info.name:
+                    client_name = client_info.name
+                elif isinstance(client_info, dict) and 'name' in client_info:
+                    client_name = client_info['name']
+    except Exception:
+        # 如果获取失败，使用默认值
+        pass
+    
+    result_dict = launch_feedback_ui(
+        first_line(project_directory), 
+        first_line(summary),
+        worker=worker,
+        client_name=client_name
+    )
     return header_data(result_dict)
 
 # 友好计算文件大小
