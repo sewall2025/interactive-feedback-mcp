@@ -11,7 +11,15 @@ import threading
 import hashlib
 import uuid
 import datetime
+from datetime import datetime
 from typing import Optional, TypedDict, List
+
+# 导入历史记录管理模块
+try:
+    from .history_db import HistoryManager, ConversationRecord
+except ImportError:
+    # 当直接运行此文件时的回退导入
+    from history_db import HistoryManager, ConversationRecord
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -354,6 +362,9 @@ class FeedbackUI(QMainWindow):
         
         # 生成三层隔离键
         self.isolation_key = self._generate_isolation_key(client_name, worker, project_directory)
+        
+        # 初始化历史记录管理器
+        self.history_manager = HistoryManager()
 
         # 设置应用程序使用Fusion样式，这是一个跨平台的样式，最接近原生外观
         QApplication.setStyle("Fusion")
@@ -492,7 +503,7 @@ class FeedbackUI(QMainWindow):
         key2 = re.sub(r'[^\w\-]', '_', worker.lower())
         
         # Key3: Project name (路径最后一节，清理特殊字符)
-        project_name = os.path.basename(project_directory.rstrip("/\\"))
+        project_name = os.path.basename(project_directory.rstrip(os.sep))
         key3 = re.sub(r'[^\w\-]', '_', project_name.lower())
         
         # 组合三层键，限制总长度
@@ -503,7 +514,6 @@ class FeedbackUI(QMainWindow):
             isolation_key = f"{key1[:20]}_{key2[:20]}_{key3[:20]}_{hash_suffix}"
         
         return isolation_key
-    
     def _get_isolation_settings_group(self) -> str:
         """获取三层隔离设置组名"""
         return f"ThreeLayer_{self.isolation_key}"
@@ -942,6 +952,9 @@ class FeedbackUI(QMainWindow):
 
         # 添加工具选项卡
         self.tab_widget.addTab(self.tools_group, "工具")
+        
+        # 创建历史记录选项卡（放在最后）
+        self._create_history_tab()
 
         # 从三层隔离设置中加载选项卡索引
         self.settings.beginGroup(self._get_isolation_settings_group())
@@ -954,6 +967,438 @@ class FeedbackUI(QMainWindow):
         
         # 将选项卡控件添加到主布局
         layout.addWidget(self.tab_widget)
+
+    def _create_history_tab(self):
+        """创建历史记录选项卡"""
+        self.history_group = QGroupBox()
+        history_layout = QVBoxLayout(self.history_group)
+        
+        # 顶部控制区域（紧凑布局）
+        control_widget = QWidget()
+        control_layout = QVBoxLayout(control_widget)
+        control_layout.setContentsMargins(5, 5, 5, 5)
+        control_layout.setSpacing(5)
+        
+        # 查看模式和搜索在同一行
+        top_row = QHBoxLayout()
+        top_row.addWidget(QLabel("查看模式:"))
+        self.view_mode_combo = QComboBox()
+        self.view_mode_combo.addItems([
+            "当前隔离模式",
+            "项目浏览模式", 
+            "环境浏览模式",
+            "全局浏览模式"
+        ])
+        self.view_mode_combo.currentTextChanged.connect(self._on_view_mode_changed)
+        top_row.addWidget(self.view_mode_combo)
+        
+        top_row.addWidget(QLabel("搜索:"))
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("搜索对话内容...")
+        self.search_input.returnPressed.connect(self._search_conversations)
+        top_row.addWidget(self.search_input)
+        
+        search_button = QPushButton("搜索")
+        search_button.clicked.connect(self._search_conversations)
+        top_row.addWidget(search_button)
+        
+        control_layout.addLayout(top_row)
+        
+        # 过滤器行（紧凑布局）
+        filter_row = QHBoxLayout()
+        filter_row.addWidget(QLabel("AI应用:"))
+        self.client_filter = QComboBox()
+        self.client_filter.addItem("所有AI应用")
+        filter_row.addWidget(self.client_filter)
+        
+        filter_row.addWidget(QLabel("环境:"))
+        self.worker_filter = QComboBox()
+        self.worker_filter.addItem("所有环境")
+        filter_row.addWidget(self.worker_filter)
+        
+        filter_row.addWidget(QLabel("项目:"))
+        self.project_filter = QComboBox()
+        self.project_filter.addItem("所有项目")
+        filter_row.addWidget(self.project_filter)
+        
+        filter_row.addStretch()
+        control_layout.addLayout(filter_row)
+        
+        # 设置控制区域的最大高度
+        control_widget.setMaximumHeight(80)
+        history_layout.addWidget(control_widget)
+        
+        # 对话列表（占用大部分空间）
+        self.conversation_list = QListWidget()
+        self.conversation_list.itemDoubleClicked.connect(self._show_conversation_detail)
+        # 设置列表项的样式
+        self.conversation_list.setAlternatingRowColors(True)
+        self.conversation_list.setSpacing(2)
+        # 启用多选
+        from PySide6.QtWidgets import QAbstractItemView
+        self.conversation_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        history_layout.addWidget(self.conversation_list)
+        
+        # 底部操作按钮（紧凑布局）
+        button_widget = QWidget()
+        button_layout = QHBoxLayout(button_widget)
+        button_layout.setContentsMargins(5, 5, 5, 5)
+        
+        refresh_button = QPushButton("刷新")
+        refresh_button.clicked.connect(self._refresh_conversations)
+        export_button = QPushButton("导出")
+        export_button.clicked.connect(self._export_conversations)
+        delete_button = QPushButton("删除选中")
+        delete_button.clicked.connect(self._delete_selected_conversation)
+        
+        button_layout.addWidget(refresh_button)
+        button_layout.addWidget(export_button)
+        button_layout.addWidget(delete_button)
+        button_layout.addStretch()
+        
+        button_widget.setMaximumHeight(40)
+        history_layout.addWidget(button_widget)
+        
+        # 添加历史记录选项卡
+        self.tab_widget.addTab(self.history_group, "历史记录")
+        
+        # 初始化历史记录数据
+        QTimer.singleShot(100, self._load_conversations)
+        # 初始化过滤器选项
+        QTimer.singleShot(150, self._update_filter_options)
+    
+    def _on_view_mode_changed(self, mode: str):
+        """查看模式变更处理"""
+        print(f"View mode changed to: {mode}")
+        # 更新过滤器选项
+        self._update_filter_options()
+        self._load_conversations()
+
+    
+    def _update_filter_options(self):
+        """根据当前查看模式更新过滤器选项"""
+        try:
+            mode = self.view_mode_combo.currentText()
+            
+            # 清空现有选项
+            self.client_filter.clear()
+            self.worker_filter.clear()
+            self.project_filter.clear()
+            
+            # 根据模式添加相应的过滤选项
+            if mode == "当前隔离模式":
+                # 当前隔离模式下，过滤器显示当前值但不可选择
+                self.client_filter.addItem(f"当前: {self.client_name}")
+                self.worker_filter.addItem(f"当前: {self.worker}")
+                project_name = os.path.basename(self.project_directory.rstrip(os.sep))
+                self.project_filter.addItem(f"当前: {project_name}")
+                
+                # 禁用过滤器
+                self.client_filter.setEnabled(False)
+                self.worker_filter.setEnabled(False)
+                self.project_filter.setEnabled(False)
+                
+            elif mode == "项目浏览模式":
+                # 项目浏览模式：固定AI应用和环境，可选择项目
+                self.client_filter.addItem(f"当前: {self.client_name}")
+                self.worker_filter.addItem(f"当前: {self.worker}")
+                
+                self.project_filter.addItem("所有项目")
+                projects = self.history_manager.get_available_projects(self.client_name, self.worker)
+                for project in projects:
+                    self.project_filter.addItem(project)
+                
+                self.client_filter.setEnabled(False)
+                self.worker_filter.setEnabled(False)
+                self.project_filter.setEnabled(True)
+                
+            elif mode == "环境浏览模式":
+                # 环境浏览模式：固定AI应用，可选择环境和项目
+                self.client_filter.addItem(f"当前: {self.client_name}")
+                
+                self.worker_filter.addItem("所有环境")
+                workers = self.history_manager.get_available_workers(self.client_name)
+                for worker in workers:
+                    self.worker_filter.addItem(worker)
+                
+                self.project_filter.addItem("所有项目")
+                projects = self.history_manager.get_available_projects(self.client_name)
+                for project in projects:
+                    self.project_filter.addItem(project)
+                
+                self.client_filter.setEnabled(False)
+                self.worker_filter.setEnabled(True)
+                self.project_filter.setEnabled(True)
+                
+            elif mode == "全局浏览模式":
+                # 全局浏览模式：可选择所有维度
+                self.client_filter.addItem("所有AI应用")
+                clients = self.history_manager.get_available_clients()
+                for client in clients:
+                    self.client_filter.addItem(client)
+                
+                self.worker_filter.addItem("所有环境")
+                workers = self.history_manager.get_available_workers()
+                for worker in workers:
+                    self.worker_filter.addItem(worker)
+                
+                self.project_filter.addItem("所有项目")
+                projects = self.history_manager.get_available_projects()
+                for project in projects:
+                    self.project_filter.addItem(project)
+                
+                self.client_filter.setEnabled(True)
+                self.worker_filter.setEnabled(True)
+                self.project_filter.setEnabled(True)
+            
+            # 连接过滤器变化信号
+            self.client_filter.currentTextChanged.connect(self._on_filter_changed)
+            self.worker_filter.currentTextChanged.connect(self._on_filter_changed)
+            self.project_filter.currentTextChanged.connect(self._on_filter_changed)
+            
+        except Exception as e:
+            print(f"Failed to update filter options: {e}")
+    
+    def _on_filter_changed(self):
+        """过滤器变化处理"""
+        self._load_conversations()
+    
+    def _search_conversations(self):
+        """搜索对话"""
+        query = self.search_input.text().strip()
+        
+        try:
+            # 获取过滤器值
+            client_filter = self.client_filter.currentText()
+            worker_filter = self.worker_filter.currentText()
+            project_filter = self.project_filter.currentText()
+            
+            # 处理过滤器值
+            client_name = None if client_filter.startswith("所有") or client_filter.startswith("当前:") else client_filter
+            worker = None if worker_filter.startswith("所有") or worker_filter.startswith("当前:") else worker_filter
+            project_name = None if project_filter.startswith("所有") or project_filter.startswith("当前:") else project_filter
+            
+            # 如果是当前隔离模式，使用当前值
+            mode = self.view_mode_combo.currentText()
+            if mode == "当前隔离模式":
+                client_name = self.client_name
+                worker = self.worker
+                project_name = os.path.basename(self.project_directory.rstrip(os.sep))
+            
+            conversations = self.history_manager.search_conversations_by_filters(
+                query=query,
+                client_name=client_name,
+                worker=worker,
+                project_name=project_name
+            )
+            self._populate_conversation_list(conversations)
+        except Exception as e:
+            print(f"Search failed: {e}")
+    
+    def _load_conversations(self):
+        """加载对话列表"""
+        try:
+            mode = self.view_mode_combo.currentText()
+            if mode == "当前隔离模式":
+                conversations = self.history_manager.get_current_isolation_history(
+                    self.client_name, self.worker, self.project_directory
+                )
+            elif mode == "项目浏览模式":
+                conversations = self.history_manager.get_project_browsing_history(
+                    self.client_name, self.worker
+                )
+            elif mode == "环境浏览模式":
+                conversations = self.history_manager.get_environment_browsing_history(
+                    self.client_name
+                )
+            elif mode == "全局浏览模式":
+                conversations = self.history_manager.get_global_browsing_history()
+            else:
+                conversations = []
+            
+            self._populate_conversation_list(conversations)
+        except Exception as e:
+            print(f"Failed to load conversations: {e}")
+    
+    def _populate_conversation_list(self, conversations: List[ConversationRecord]):
+        """填充对话列表"""
+        self.conversation_list.clear()
+        
+        for conv in conversations:
+            # 创建美观的列表项
+            created_time = conv.created_at.strftime("%Y-%m-%d %H:%M:%S") if conv.created_at else "未知时间"
+            
+            # AI提示预览（显示更多内容）
+            ai_prompt_preview = conv.ai_prompt[:150] + "..." if len(conv.ai_prompt) > 150 else conv.ai_prompt
+            
+            # 用户反馈预览（显示更多内容）
+            user_feedback = conv.user_feedback or "无用户反馈"
+            feedback_preview = user_feedback[:120] + "..." if len(user_feedback) > 120 else user_feedback
+            
+            # 创建简洁的显示格式
+            line1 = f"{created_time} | {conv.client_name} | {conv.worker} | {conv.project_name}"
+            line2 = f"AI助手: {ai_prompt_preview}"
+            line3 = f"用户: {feedback_preview}"
+            separator = "─" * 80
+            item_text = line1 + chr(10) + line2 + chr(10) + line3 + chr(10) + separator
+            
+            from PySide6.QtWidgets import QListWidgetItem
+            from PySide6.QtCore import QSize
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.UserRole, conv)  # 存储完整的对话记录
+            
+            # 设置项目高度以容纳多行文本和分隔线
+            item.setSizeHint(QSize(0, 100))
+            
+            self.conversation_list.addItem(item)
+    def _show_conversation_detail(self, item):
+        """显示对话详情"""
+        conv = item.data(Qt.UserRole)
+        if conv:
+            self._show_conversation_detail_dialog(conv)
+    
+    def _show_conversation_detail_dialog(self, conv: ConversationRecord):
+        """显示对话详情对话框"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"对话详情 - {conv.session_id[:8]}")
+        dialog.setMinimumSize(600, 400)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # 基本信息
+        info_text = f"""
+时间: {conv.created_at.strftime('%Y-%m-%d %H:%M:%S') if conv.created_at else '未知'}
+AI应用: {conv.client_name}
+环境: {conv.worker}
+项目: {conv.project_name}
+项目路径: {conv.project_directory}
+        """.strip()
+        
+        info_label = QLabel(info_text)
+        layout.addWidget(info_label)
+        
+        # AI提示
+        layout.addWidget(QLabel("AI提示:"))
+        ai_prompt_text = QTextEdit()
+        ai_prompt_text.setPlainText(conv.ai_prompt)
+        ai_prompt_text.setReadOnly(True)
+        ai_prompt_text.setMaximumHeight(100)
+        layout.addWidget(ai_prompt_text)
+        
+        # 用户反馈
+        layout.addWidget(QLabel("用户反馈:"))
+        feedback_text = QTextEdit()
+        feedback_text.setPlainText(conv.user_feedback or "无用户反馈")
+        feedback_text.setReadOnly(True)
+        feedback_text.setMaximumHeight(100)
+        layout.addWidget(feedback_text)
+        
+        # 命令日志
+        if conv.command_logs:
+            layout.addWidget(QLabel("命令日志:"))
+            logs_text = QTextEdit()
+            logs_text.setPlainText(conv.command_logs)
+            logs_text.setReadOnly(True)
+            logs_text.setMaximumHeight(150)
+            layout.addWidget(logs_text)
+        
+        # 关闭按钮
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok)
+        button_box.accepted.connect(dialog.accept)
+        layout.addWidget(button_box)
+        
+        dialog.exec()
+    
+    def _refresh_conversations(self):
+        """刷新对话列表"""
+        self._load_conversations()
+    
+    def _export_conversations(self):
+        """导出对话"""
+        try:
+            # 获取当前显示的对话列表
+            conversations = []
+            for i in range(self.conversation_list.count()):
+                item = self.conversation_list.item(i)
+                conv = item.data(Qt.UserRole)
+                if conv:
+                    conversations.append(conv)
+            
+            if not conversations:
+                QMessageBox.information(self, "导出", "没有可导出的对话记录")
+                return
+            
+            # 让用户选择导出格式和位置
+            from PySide6.QtWidgets import QFileDialog
+            file_path, selected_filter = QFileDialog.getSaveFileName(
+                self,
+                "导出对话记录",
+                f"conversations_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                "JSON文件 (*.json);;CSV文件 (*.csv);;Markdown文件 (*.md)"
+            )
+            
+            if file_path:
+                # 根据选择的格式导出
+                if selected_filter.startswith("JSON"):
+                    if not file_path.endswith('.json'):
+                        file_path += '.json'
+                    self.history_manager.export_conversations_to_json(conversations, file_path)
+                elif selected_filter.startswith("CSV"):
+                    if not file_path.endswith('.csv'):
+                        file_path += '.csv'
+                    self.history_manager.export_conversations_to_csv(conversations, file_path)
+                elif selected_filter.startswith("Markdown"):
+                    if not file_path.endswith('.md'):
+                        file_path += '.md'
+                    self.history_manager.export_conversations_to_markdown(conversations, file_path)
+                
+                QMessageBox.information(self, "导出成功", f"已导出 {len(conversations)} 条对话记录到: {file_path}")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "导出失败", f"导出对话记录时出错: {e}")
+    
+    def _delete_selected_conversation(self):
+        """删除选中的对话"""
+        selected_items = self.conversation_list.selectedItems()
+        if not selected_items:
+            QMessageBox.information(self, "删除", "请先选择要删除的对话记录")
+            return
+        
+        # 支持多选删除
+        conversations_to_delete = []
+        for item in selected_items:
+            conv = item.data(Qt.UserRole)
+            if conv:
+                conversations_to_delete.append(conv)
+        
+        if not conversations_to_delete:
+            return
+        
+        # 确认删除
+        if len(conversations_to_delete) == 1:
+            conv = conversations_to_delete[0]
+            message = f"确定要删除这条对话记录吗？时间: {conv.created_at.strftime('%Y-%m-%d %H:%M:%S') if conv.created_at else '未知'}"
+        else:
+            message = f"确定要删除选中的 {len(conversations_to_delete)} 条对话记录吗？"
+        
+        reply = QMessageBox.question(
+            self, "确认删除", message,
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            try:
+                deleted_count = 0
+                for conv in conversations_to_delete:
+                    success = self.history_manager.db.delete_conversation(conv.session_id, conv.isolation_key)
+                    if success:
+                        deleted_count += 1
+                
+                self._load_conversations()
+                QMessageBox.information(self, "删除成功", f"已删除 {deleted_count} 条对话记录")
+                
+            except Exception as e:
+                QMessageBox.critical(self, "删除失败", f"删除对话记录时出错: {e}")
 
     def _cycle_window_size(self):
         """循环调整窗口大小：默认 -> x2 -> x3 -> 默认"""
@@ -1082,17 +1527,40 @@ class FeedbackUI(QMainWindow):
             self.run_button.setText("运行(&R)")
 
     def _submit_feedback(self):
-        # 如果是空的话修改为 Continue 提交
-        # if self.feedback_text.toPlainText().strip() == "":
-        #     self.feedback_text.setText("Continue")
-        # self.feedback_result = FeedbackResult(
-        #     logs="".join(self.log_buffer),
-        #     interactive_feedback=self.feedback_text.toPlainText().strip(),
-        #     uploaded_images=self.uploaded_images
-        # )
+        # 获取反馈内容
+        user_feedback = self.feedback_text.toPlainText().strip()
+        command_logs = "".join(self.log_buffer)
+        
+        # 准备图片数据
+        images = []
+        for image_path in self.uploaded_images:
+            try:
+                with open(image_path, 'rb') as f:
+                    image_data = f.read()
+                image_name = os.path.basename(image_path)
+                images.append((image_path, image_name, image_data))
+            except Exception as e:
+                print(f"Failed to read image {image_path}: {e}")
+        
+        # 保存历史记录
+        try:
+            session_id = self.history_manager.save_feedback_session(
+                client_name=self.client_name,
+                worker=self.worker,
+                project_directory=self.project_directory,
+                ai_prompt=self.prompt,
+                user_feedback=user_feedback,
+                command_logs=command_logs,
+                images=images
+            )
+            print(f"Conversation saved with session ID: {session_id}")
+        except Exception as e:
+            print(f"Failed to save conversation history: {e}")
+        
+        # 设置反馈结果
         self.feedback_result = {
-            "command_logs": "".join(self.log_buffer),
-            "interactive_feedback": self.feedback_text.toPlainText().strip(),
+            "command_logs": command_logs,
+            "interactive_feedback": user_feedback,
             "uploaded_images": self.uploaded_images
         }
         
