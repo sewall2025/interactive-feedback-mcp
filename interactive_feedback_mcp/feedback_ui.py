@@ -678,6 +678,10 @@ class FeedbackUI(QMainWindow):
         self.countdown_remaining = 0      # 剩余倒计时时间
         self.original_submit_text = ""    # 原始提交按钮文本
         self.auto_fill_first_reply = True # 自动提交时如果反馈为空，是否自动填入第一条预设回复
+        
+        # 末尾自动附加内容相关
+        self.auto_append_enabled = True  # 是否启用末尾自动附加内容
+        self.auto_append_content = ""  # 将在设置加载时设置默认值
 
         # 窗口大小设置 - 修复窗口过大问题
         self.default_size = (460, 360)
@@ -781,6 +785,12 @@ class FeedbackUI(QMainWindow):
         # 如果没有保存的快捷回复，使用默认值
         if not self.quick_replies:
             self.quick_replies = ["继续", "结束对话","使用MODE: RESEARCH重新开始"]
+        
+        # 加载末尾自动附加内容设置
+        self.auto_append_enabled = self.settings.value("auto_append_enabled", True, type=bool)
+        self.auto_append_content = self.settings.value("auto_append_content",
+                                                      "继续，请务必完成后，必须call MCP tool `interactive_feedback` 询问我的反馈。",
+                                                      type=str)
         self.settings.endGroup() # End isolation settings group
         
         # Load settings from three-layer isolation (command, auto-execute, selected tab index)
@@ -1099,9 +1109,39 @@ class FeedbackUI(QMainWindow):
         self.submit_button = submit_button
         self.original_submit_text = submit_button_text
         
-        # 创建水平布局来包含提交按钮
+        # 创建水平布局来包含提交按钮和末尾自动附加内容功能区域
         submit_layout = QHBoxLayout()
+        
+        # 发送反馈按钮（保持Expanding）
         submit_layout.addWidget(submit_button)
+        
+        # 添加竖线分隔符
+        separator = QFrame()
+        separator.setFrameShape(QFrame.VLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        separator.setStyleSheet("color: #cccccc;")
+        submit_layout.addWidget(separator)
+        
+        # 末尾自动附加内容功能区域
+        auto_append_widget = QWidget()
+        auto_append_layout = QVBoxLayout(auto_append_widget)
+        auto_append_layout.setContentsMargins(10, 5, 10, 5)
+        auto_append_layout.setSpacing(5)
+        
+        # 勾选框
+        self.auto_append_check = QCheckBox("末尾自动附加内容")
+        self.auto_append_check.setChecked(self.auto_append_enabled)
+        self.auto_append_check.stateChanged.connect(self._update_auto_append_settings)
+        auto_append_layout.addWidget(self.auto_append_check)
+        
+        # 自定义内容输入框
+        self.auto_append_input = QLineEdit()
+        self.auto_append_input.setText(self.auto_append_content)
+        self.auto_append_input.setPlaceholderText("输入要自动附加的内容...")
+        self.auto_append_input.textChanged.connect(self._update_auto_append_settings)
+        auto_append_layout.addWidget(self.auto_append_input)
+        
+        submit_layout.addWidget(auto_append_widget)
         
         feedback_layout.addWidget(self.feedback_text)
         
@@ -2012,6 +2052,17 @@ AI应用: {conv.client_name}
     def _submit_feedback(self):
         # 获取反馈内容
         user_feedback = self.feedback_text.toPlainText().strip()
+        
+        # 检查是否需要自动附加内容
+        if self.auto_append_enabled and self.auto_append_content:
+            # 如果启用了自动附加且有自定义内容，则在末尾附加
+            if user_feedback:
+                user_feedback += "\n" + self.auto_append_content
+            else:
+                user_feedback = self.auto_append_content
+            # 更新文本框显示最终内容
+            self.feedback_text.setText(user_feedback)
+        
         command_logs = "".join(self.log_buffer)
         
         # 准备图片数据
@@ -2467,6 +2518,20 @@ AI应用: {conv.client_name}
         self.settings.setValue("auto_submit_wait_time", self.auto_submit_wait_time)
         self.settings.setValue("auto_fill_first_reply", self.auto_fill_first_reply)
         self.settings.endGroup()
+        # 强制同步到磁盘，确保数据持久化
+        self.settings.sync()
+
+    def _update_auto_append_settings(self):
+        """更新末尾自动附加内容设置"""
+        self.auto_append_enabled = self.auto_append_check.isChecked()
+        self.auto_append_content = self.auto_append_input.text()
+        
+        # 保存到三层隔离设置
+        self.settings.beginGroup(self._get_isolation_settings_group())
+        self.settings.setValue("auto_append_enabled", self.auto_append_enabled)
+        self.settings.setValue("auto_append_content", self.auto_append_content)
+        self.settings.endGroup()
+        
         # 强制同步到磁盘，确保数据持久化
         self.settings.sync()
 
