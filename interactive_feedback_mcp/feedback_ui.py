@@ -18,11 +18,13 @@ try:
     from .history_db import HistoryManager, ConversationRecord
     from .server import get_default_detail_level
     from .isolation_utils import IsolationUtils, IsolationSettingsManager
+    from .timer_manager import TimerManager, ProcessMonitor, DebounceHelper, AutoSubmitTimer
 except ImportError:
     # 当直接运行此文件时的回退导入
     from history_db import HistoryManager, ConversationRecord
     from server import get_default_detail_level
     from isolation_utils import IsolationUtils, IsolationSettingsManager
+    from timer_manager import TimerManager, ProcessMonitor, DebounceHelper, AutoSubmitTimer
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -636,6 +638,12 @@ class FeedbackUI(QMainWindow):
         
         # 初始化历史记录管理器
         self.history_manager = HistoryManager()
+        
+        # 初始化定时器管理系统
+        self.timer_manager = TimerManager()
+        self.process_monitor = ProcessMonitor(self.timer_manager)
+        self.debounce_helper = DebounceHelper(self.timer_manager)
+        self.auto_submit_timer = AutoSubmitTimer(self.timer_manager)
 
         # 设置应用程序使用Fusion样式，这是一个跨平台的样式，最接近原生外观
         QApplication.setStyle("Fusion")
@@ -663,7 +671,7 @@ class FeedbackUI(QMainWindow):
         # 自动提交相关
         self.auto_submit_enabled = False  # 是否启用自动提交
         self.auto_submit_wait_time = 60   # 等待时间（秒）
-        self.auto_submit_timer = None     # 倒计时定时器
+
         self.countdown_remaining = 0      # 剩余倒计时时间
         self.original_submit_text = ""    # 原始提交按钮文本
         self.auto_fill_first_reply = True # 自动提交时如果反馈为空，是否自动填入第一条预设回复
@@ -804,11 +812,6 @@ class FeedbackUI(QMainWindow):
         
         # 初始化图片预览
         QTimer.singleShot(100, self._update_image_preview)
-        
-        # 连接窗口大小变化信号，确保窗口调整后更新大小信息标签
-        self.resize_event_timer = QTimer()
-        self.resize_event_timer.setSingleShot(True)
-        self.resize_event_timer.timeout.connect(self._update_size_info)
 
         if self.config.get("execute_automatically", False):
             self._run_command()
@@ -1951,15 +1954,7 @@ AI应用: {conv.client_name}
         cursor.movePosition(QTextCursor.End)
         self.log_text.setTextCursor(cursor)
 
-    def _check_process_status(self):
-        if self.process and self.process.poll() is not None:
-            # Process has terminated
-            exit_code = self.process.poll()
-            self._append_log(f"\n进程已退出，退出代码 {exit_code}\n")
-            self.run_button.setText("运行(&R)")
-            self.process = None
-            self.activateWindow()
-            self.feedback_text.setFocus()
+
 
     def _run_command(self):
         if self.process:
@@ -2009,14 +2004,22 @@ AI应用: {conv.client_name}
                 daemon=True
             ).start()
 
-            # Start process status checking
-            self.status_timer = QTimer()
-            self.status_timer.timeout.connect(self._check_process_status)
-            self.status_timer.start(100)  # Check every 100ms
+            # 使用新的进程监控器替代原来的status_timer
+            self.process_monitor.add_process(
+                self.process, 
+                self._on_command_finished,
+                'main_command'
+            )
 
         except Exception as e:
             self._append_log(f"运行命令时出错: {str(e)}\n")
             self.run_button.setText("运行(&R)")
+    
+    def _on_command_finished(self, return_code):
+        """命令执行完成的回调"""
+        self.process = None
+        self.run_button.setText("运行(&R)")
+        self.process_monitor.remove_process('main_command')
 
     def _submit_feedback(self):
         # 获取反馈内容
@@ -2410,6 +2413,9 @@ AI应用: {conv.client_name}
             
         # 清理未使用的临时图片
         self._cleanup_temp_images()
+        
+        # 清理所有定时器
+        self.timer_manager.cleanup()
             
         super().closeEvent(event)
 
@@ -2486,44 +2492,32 @@ AI应用: {conv.client_name}
         if not self.auto_submit_enabled:
             return
 
-        # 停止现有的倒计时（如果有）
-        self._stop_auto_submit_countdown()
-
-        # 初始化倒计时
-        self.countdown_remaining = self.auto_submit_wait_time
-
-        # 创建并启动定时器
-        self.auto_submit_timer = QTimer()
-        self.auto_submit_timer.timeout.connect(self._update_countdown)
-        self.auto_submit_timer.start(1000)  # 每秒触发一次
-
-        # 立即更新一次按钮文本
-        self._update_countdown()
+        # 使用新的自动提交定时器
+        self.auto_submit_timer.start_countdown(
+            self.auto_submit_wait_time,
+            self._auto_submit_timeout,
+            self._update_submit_button_text
+        )
 
     def _stop_auto_submit_countdown(self):
         """停止自动提交倒计时"""
-        if self.auto_submit_timer:
-            self.auto_submit_timer.stop()
-            self.auto_submit_timer = None
-
-        # 恢复按钮原始文本
+        self.auto_submit_timer.stop_countdown()
+        # 恢复原始按钮文本
         if hasattr(self, 'submit_button') and self.original_submit_text:
             self.submit_button.setText(self.original_submit_text)
 
-    def _update_countdown(self):
-        """更新倒计时显示"""
-        if self.countdown_remaining <= 0:
-            # 倒计时结束，自动提交
-            self._auto_submit_timeout()
-            return
-
-        # 更新按钮文本显示倒计时
-        if hasattr(self, 'submit_button'):
-            countdown_text = f"{self.original_submit_text} ({self.countdown_remaining}秒)"
+    def _update_submit_button_text(self, remaining_time):
+        """更新提交按钮文本"""
+        if remaining_time is None:
+            # 恢复原始文本
+            if hasattr(self, 'submit_button') and self.original_submit_text:
+                self.submit_button.setText(self.original_submit_text)
+        else:
+            # 显示倒计时
+            countdown_text = f"{self.original_submit_text} ({remaining_time}秒)"
             self.submit_button.setText(countdown_text)
 
-        # 减少倒计时
-        self.countdown_remaining -= 1
+
 
     def _auto_submit_timeout(self):
         """自动提交超时处理"""
@@ -2655,29 +2649,26 @@ AI应用: {conv.client_name}
                 daemon=True
             ).start()
 
-            # 启动进程状态检查，但使用专门的检查方法
-            self.git_status_timer = QTimer()
-            self.git_status_timer.timeout.connect(self._check_git_process_status)
-            self.git_status_timer.start(100)  # 每100毫秒检查一次
+            # 使用新的进程监控器替代原来的git_status_timer
+            self.process_monitor.add_process(
+                self.process,
+                self._on_git_command_finished, 
+                'git_command'
+            )
 
         except Exception as e:
             self._append_log(f"运行 Git AI Commit GUI 时出错: {str(e)}\n")
             self.git_commit_button.setText("运行 Git AI Commit GUI")
             self.git_commit_button.setEnabled(True)
+    
+    def _on_git_command_finished(self, return_code):
+        """Git命令执行完成的回调"""
+        self.process = None
+        self.git_commit_button.setText("运行 Git AI Commit GUI")
+        self.git_commit_button.setEnabled(True)
+        self.process_monitor.remove_process('git_command')
 
-    def _check_git_process_status(self):
-        """检查 Git AI Commit GUI 进程状态"""
-        if self.process and self.process.poll() is not None:
-            # 进程已终止
-            exit_code = self.process.poll()
-            self._append_log(f"\nGit AI Commit GUI 进程已退出，退出代码 {exit_code}\n")
-            self.git_commit_button.setText("运行 Git AI Commit GUI")
-            self.git_commit_button.setEnabled(True)
-            self.process = None
 
-            # 停止状态检查定时器
-            if hasattr(self, 'git_status_timer'):
-                self.git_status_timer.stop()
 
     def _on_border_color_changed(self, color: str):
         """处理边框颜色变化"""
@@ -2720,9 +2711,8 @@ AI应用: {conv.client_name}
     def resizeEvent(self, event):
         """重写resize事件，在窗口大小变化时更新大小信息标签"""
         super().resizeEvent(event)
-        # 使用计时器延迟更新，避免频繁更新
-        if hasattr(self, 'resize_event_timer'):
-            self.resize_event_timer.start(200)  # 200毫秒后更新
+        # 使用防抖辅助器替代原来的resize_event_timer
+        self.debounce_helper.debounce('resize', self._update_size_info)  # 200毫秒后更新
 
     def moveEvent(self, event):
         """重写move事件，在窗口位置变化时自动保存位置（如果启用了自动保存）"""
@@ -2733,14 +2723,8 @@ AI应用: {conv.client_name}
             auto_save_position = self.isolation_settings.load_setting("auto_save_position", True, bool)
             
             if auto_save_position:
-                # 使用计时器延迟保存，避免拖动过程中频繁保存
-                if not hasattr(self, 'move_event_timer'):
-                    from PySide6.QtCore import QTimer
-                    self.move_event_timer = QTimer()
-                    self.move_event_timer.setSingleShot(True)
-                    self.move_event_timer.timeout.connect(self._save_position_from_move)
-                
-                self.move_event_timer.start(500)  # 500毫秒后保存位置
+                # 使用防抖辅助器替代原来的move_event_timer
+                self.debounce_helper.debounce('move', self._save_position_from_move)  # 500毫秒后保存位置
     
     def _save_position_from_move(self):
         """从移动事件中保存窗口位置"""
