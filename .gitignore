@@ -18,9 +18,8 @@ venv*/
 
 .cursor/rules/
 ./temp
+/temp
 /.idea
-/.serena
-
 
 /tasks
 /.serena

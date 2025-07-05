@@ -9,7 +9,7 @@ import subprocess
 from PIL import Image as PILImage
 
 from fastmcp import Image
-from typing import List, Union
+from typing import List, Union, Literal
 from typing import Annotated, Dict
 
 from fastmcp import FastMCP, Context
@@ -18,7 +18,23 @@ from pydantic import Field
 # The log_level is necessary for Cline to work: https://github.com/jlowin/fastmcp/issues/81
 mcp = FastMCP("Interactive Feedback MCP", log_level="ERROR")
 
-def launch_feedback_ui(project_directory: str, summary: str, worker: str = "default", client_name: str = "unknown-client") -> dict[str, str]:
+def get_default_detail_level() -> str:
+    """Get the default detail level from environment variable AI_summary_detail_level"""
+    detail_level = os.environ.get('AI_summary_detail_level', 'brief')
+    
+    # Validate the detail level value
+    valid_levels = ['brief', 'detailed', 'comprehensive']
+    if detail_level not in valid_levels:
+        # If invalid value, fallback to default
+        detail_level = 'brief'
+    
+    return detail_level
+
+def launch_feedback_ui(project_directory: str, summary: str, worker: str = "default", client_name: str = "unknown-client", detail_level: str = None) -> dict[str, str]:
+    # If detail_level is not provided, get it from environment variable
+    if detail_level is None:
+        detail_level = get_default_detail_level()
+    
     # Create a temporary file for the feedback result
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
         output_file = tmp.name
@@ -37,7 +53,8 @@ def launch_feedback_ui(project_directory: str, summary: str, worker: str = "defa
             "--prompt", summary,
             "--output-file", output_file,
             "--worker", worker,
-            "--client-name", client_name
+            "--client-name", client_name,
+            "--detail-level", detail_level
         ]
         result = subprocess.run(
             args,
@@ -68,7 +85,11 @@ def first_line(text: str) -> str:
 def interactive_feedback(
     project_directory: Annotated[str, Field(description="Full path to the project directory")],
     summary: Annotated[str, Field(description="Short, one-line summary of the changes")],
-    ctx: Context
+    ctx: Context,
+    detail_level: Annotated[
+        Literal["brief", "detailed", "comprehensive"], 
+        Field(description="Level of detail for the summary: brief (one-line), detailed (multi-line with key points), comprehensive (full description with background and technical details)")
+    ] = None
 ) -> Dict[str, Union[str, List]]:
     """Request interactive feedback for a given project directory and summary"""
     
@@ -99,7 +120,8 @@ def interactive_feedback(
         first_line(project_directory), 
         first_line(summary),
         worker=worker,
-        client_name=client_name
+        client_name=client_name,
+        detail_level=detail_level
     )
     return header_data(result_dict)
 

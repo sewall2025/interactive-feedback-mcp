@@ -66,7 +66,8 @@ uv run python interactive_feedback_mcp/server.py
       "timeout": 600,
       "autoApprove": ["interactive_feedback"],
       "env": {
-        "worker": "work"
+        "worker": "work",
+        "AI_summary_detail_level": "detailed"
       }
     }
   }
@@ -121,6 +122,62 @@ uv run python interactive_feedback_mcp/server.py
   }
 }
 ```
+
+## 🔧 环境变量配置
+
+Interactive Feedback MCP 支持以下环境变量来自定义行为：
+
+### AI_summary_detail_level
+
+控制 AI 助手提供的 summary 详细程度，支持三种模式：
+
+- **`brief`** (默认): 简短的一行总结，适合快速了解
+- **`detailed`**: 详细的多行描述，包含主要变更点和影响  
+- **`comprehensive`**: 全面的描述，包含背景、变更、影响、技术细节等
+
+#### 配置示例
+
+```json
+{
+  "mcpServers": {
+    "interactive-feedback-mcp": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/sewall2025/interactive-feedback-mcp.git", "interactive-feedback-mcp"],
+      "env": {
+        "worker": "work",
+        "AI_summary_detail_level": "comprehensive"
+      }
+    }
+  }
+}
+```
+
+#### 效果对比
+
+**brief 模式**:
+```
+summary: "添加了用户认证功能"
+```
+
+**detailed 模式**:
+```
+summary: "添加了用户认证功能，包含登录、注册和密码重置模块，更新了数据库schema和相关测试"
+```
+
+**comprehensive 模式**:
+```
+summary: "实现了完整的用户认证系统：
+1. 核心功能：用户注册、登录、密码重置
+2. 技术实现：JWT token管理、bcrypt密码加密
+3. 数据库变更：新增users表和相关索引
+4. 安全措施：权限验证中间件、输入验证
+5. 测试覆盖：单元测试和集成测试
+6. 文档更新：API文档和用户指南"
+```
+
+### worker
+
+工作环境标识符，用于三层项目隔离功能。详见下方的三层项目隔离说明。
 
 ## 🔒 三层项目隔离
 

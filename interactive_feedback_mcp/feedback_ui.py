@@ -16,9 +16,11 @@ from typing import Optional, TypedDict, List
 # 导入历史记录管理模块
 try:
     from .history_db import HistoryManager, ConversationRecord
+    from .server import get_default_detail_level
 except ImportError:
     # 当直接运行此文件时的回退导入
     from history_db import HistoryManager, ConversationRecord
+    from server import get_default_detail_level
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -632,12 +634,18 @@ class TitleCustomizationWidget(QWidget):
             self.preview_label.setText(f"Interactive: {isolation_key}")
 
 class FeedbackUI(QMainWindow):
-    def __init__(self, project_directory: str, prompt: str, worker: str = "default", client_name: str = "unknown-client"):
+    def __init__(self, project_directory: str, prompt: str, worker: str = "default", client_name: str = "unknown-client", detail_level: str = None):
         super().__init__()
+        
+        # If detail_level is not provided, get it from environment variable
+        if detail_level is None:
+            detail_level = get_default_detail_level()
+        
         self.project_directory = project_directory
         self.prompt = prompt
         self.worker = worker
         self.client_name = client_name
+        self.detail_level = detail_level
         
         # 生成三层隔离键
         self.isolation_key = self._generate_isolation_key(client_name, worker, project_directory)
@@ -1067,6 +1075,16 @@ class FeedbackUI(QMainWindow):
         self.description_label = QLabel(self.prompt)
         self.description_label.setWordWrap(True)
         feedback_layout.addWidget(self.description_label)
+        
+        # Detail level information
+        detail_level_text = {
+            "brief": "简短模式 - 提供一行总结",
+            "detailed": "详细模式 - 提供多行描述，包含主要变更点",
+            "comprehensive": "全面模式 - 提供完整描述，包含背景和技术细节"
+        }
+        self.detail_level_label = QLabel(f"📝 {detail_level_text.get(self.detail_level, '未知模式')}")
+        self.detail_level_label.setStyleSheet("color: #666; font-size: 11px; font-style: italic;")
+        feedback_layout.addWidget(self.detail_level_label)
 
         self.feedback_text = FeedbackTextEdit(feedback_ui=self)
         font_metrics = self.feedback_text.fontMetrics()
@@ -2864,13 +2882,17 @@ def get_project_settings_group(project_dir: str) -> str:
     full_hash = hashlib.md5(project_dir.encode('utf-8')).hexdigest()[:8]
     return f"{basename}_{full_hash}"
 
-def feedback_ui(project_directory: str, prompt: str, output_file: Optional[str] = None, worker: str = "default", client_name: str = "unknown-client") -> Optional[FeedbackResult]:
+def feedback_ui(project_directory: str, prompt: str, output_file: Optional[str] = None, worker: str = "default", client_name: str = "unknown-client", detail_level: str = None) -> Optional[FeedbackResult]:
+    # If detail_level is not provided, get it from environment variable
+    if detail_level is None:
+        detail_level = get_default_detail_level()
+    
     app = QApplication.instance() or QApplication()
     
     # 在提示文本中添加AI助手信息
     ai_prompt = f"AI助手: {prompt}"
     
-    ui = FeedbackUI(project_directory, ai_prompt, worker=worker, client_name=client_name)
+    ui = FeedbackUI(project_directory, ai_prompt, worker=worker, client_name=client_name, detail_level=detail_level)
     result = ui.run()
 
     if output_file and result:
@@ -2890,9 +2912,10 @@ if __name__ == "__main__":
     parser.add_argument("--output-file", help="Path to save the feedback result as JSON")
     parser.add_argument("--worker", default="default", help="Worker environment identifier (max 40 chars)")
     parser.add_argument("--client-name", default="unknown-client", help="MCP client name for isolation")
+    parser.add_argument("--detail-level", default=get_default_detail_level(), choices=["brief", "detailed", "comprehensive"], help="Level of detail for the summary")
     args = parser.parse_args()
 
-    result = feedback_ui(args.project_directory, args.prompt, args.output_file, args.worker, args.client_name)
+    result = feedback_ui(args.project_directory, args.prompt, args.output_file, args.worker, args.client_name, args.detail_level)
     if result:
         feedback_result = {
             "command_logs": result['command_logs'],
