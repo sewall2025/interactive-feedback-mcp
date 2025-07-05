@@ -13,6 +13,13 @@ from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
+# 导入隔离工具
+try:
+    from .isolation_utils import IsolationUtils
+except ImportError:
+    # 当直接运行此文件时的回退导入
+    from isolation_utils import IsolationUtils
+
 
 @dataclass
 class ConversationRecord:
@@ -292,7 +299,7 @@ class ThreeLayerHistoryDB:
     def _generate_session_id(self, record: ConversationRecord) -> str:
         """生成会话ID"""
         content = f"{record.isolation_key}_{record.ai_prompt}_{datetime.now().isoformat()}"
-        return hashlib.md5(content.encode()).hexdigest()
+        return IsolationUtils.generate_hash(content)
     
     def _row_to_conversation_record(self, row: sqlite3.Row) -> ConversationRecord:
         """将数据库行转换为对话记录对象"""
@@ -364,7 +371,7 @@ class HistoryManager:
             会话ID
         """
         # 生成隔离键
-        isolation_key = self._generate_isolation_key(client_name, worker, project_directory)
+        isolation_key = IsolationUtils.generate_isolation_key(client_name, worker, project_directory)
         project_name = os.path.basename(project_directory.rstrip("/\\"))
         
         # 创建对话记录
@@ -396,13 +403,13 @@ class HistoryManager:
     def get_current_isolation_history(self, client_name: str, worker: str, project_directory: str,
                                     limit: int = 100, offset: int = 0) -> List[ConversationRecord]:
         """获取当前隔离组合的历史记录"""
-        isolation_key = self._generate_isolation_key(client_name, worker, project_directory)
+        isolation_key = IsolationUtils.generate_isolation_key(client_name, worker, project_directory)
         return self.db.get_conversations(isolation_key, limit, offset)
     
     def search_current_isolation(self, client_name: str, worker: str, project_directory: str,
                                query: str, limit: int = 100) -> List[ConversationRecord]:
         """搜索当前隔离组合的历史记录"""
-        isolation_key = self._generate_isolation_key(client_name, worker, project_directory)
+        isolation_key = IsolationUtils.generate_isolation_key(client_name, worker, project_directory)
         return self.db.search_conversations(isolation_key, query, limit)
 
     
@@ -630,25 +637,4 @@ class HistoryManager:
                 
                 f.write("---\n\n")
     
-    def _generate_isolation_key(self, client_name: str, worker: str, project_directory: str) -> str:
-        """生成三层隔离键"""
-        import re
-        
-        # Key1: Client name from MCP clientInfo (清理特殊字符)
-        key1 = re.sub(r'[^\w\-]', '_', client_name.lower())
-        
-        # Key2: Worker identifier (清理特殊字符，已验证长度<=40)
-        key2 = re.sub(r'[^\w\-]', '_', worker.lower())
-        
-        # Key3: Project name (路径最后一节，清理特殊字符)
-        project_name = os.path.basename(project_directory.rstrip("/\\"))
-        key3 = re.sub(r'[^\w\-]', '_', project_name.lower())
-        
-        # 组合三层键，限制总长度
-        isolation_key = f"{key1}_{key2}_{key3}"
-        if len(isolation_key) > 100:  # 防止文件系统限制
-            # 使用哈希缩短过长的键
-            hash_suffix = hashlib.md5(isolation_key.encode()).hexdigest()[:8]
-            isolation_key = f"{key1[:20]}_{key2[:20]}_{key3[:20]}_{hash_suffix}"
-        
-        return isolation_key
+    

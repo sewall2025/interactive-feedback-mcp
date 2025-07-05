@@ -17,10 +17,12 @@ from typing import Optional, TypedDict, List
 try:
     from .history_db import HistoryManager, ConversationRecord
     from .server import get_default_detail_level
+    from .isolation_utils import IsolationUtils, IsolationSettingsManager
 except ImportError:
     # 当直接运行此文件时的回退导入
     from history_db import HistoryManager, ConversationRecord
     from server import get_default_detail_level
+    from isolation_utils import IsolationUtils, IsolationSettingsManager
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -385,23 +387,16 @@ class PersonalizationManager:
 
     def __init__(self, isolation_key: str):
         self.isolation_key = isolation_key
-        self.isolation_group_name = f"ThreeLayer_{isolation_key}"
         self.settings = QSettings("InteractiveFeedbackMCP", "InteractiveFeedbackMCP")
+        self.isolation_settings = IsolationSettingsManager(self.settings, isolation_key)
 
     def load_border_color(self) -> str:
-        """加载三层隔离组合的边框颜色设置"""
-        self.settings.beginGroup(self.isolation_group_name)
-        color = self.settings.value("window_border_color", "#ffffff", type=str)
-        self.settings.endGroup()
-        return color
+        """加载边框颜色设置"""
+        return self.isolation_settings.load_setting("window_border_color", "#4CAF50", str)
 
     def save_border_color(self, color: str):
         """保存边框颜色设置"""
-        self.settings.beginGroup(self.isolation_group_name)
-        self.settings.setValue("window_border_color", color)
-        self.settings.endGroup()
-        # 强制同步到磁盘，确保数据持久化
-        self.settings.sync()
+        self.isolation_settings.save_setting("window_border_color", color)
 
     def apply_border_color(self, color: str, window: QMainWindow):
         """应用颜色到窗口底色 - 更自然的方式"""
@@ -416,34 +411,20 @@ class PersonalizationManager:
         """)
 
     def load_custom_title(self) -> str:
-        """加载三层隔离组合的自定义标题"""
-        self.settings.beginGroup(self.isolation_group_name)
-        title = self.settings.value("custom_title", "", type=str)
-        self.settings.endGroup()
-        return title
+        """加载自定义标题"""
+        return self.isolation_settings.load_setting("custom_title", "", str)
 
     def save_custom_title(self, title: str):
         """保存自定义标题"""
-        self.settings.beginGroup(self.isolation_group_name)
-        self.settings.setValue("custom_title", title)
-        self.settings.endGroup()
-        # 强制同步到磁盘，确保数据持久化
-        self.settings.sync()
+        self.isolation_settings.save_setting("custom_title", title)
 
     def load_title_mode(self) -> str:
-        """加载标题模式（dynamic/custom）"""
-        self.settings.beginGroup(self.isolation_group_name)
-        mode = self.settings.value("title_mode", "dynamic", type=str)
-        self.settings.endGroup()
-        return mode
+        """加载标题模式"""
+        return self.isolation_settings.load_setting("title_mode", "auto", str)
 
     def save_title_mode(self, mode: str):
         """保存标题模式"""
-        self.settings.beginGroup(self.isolation_group_name)
-        self.settings.setValue("title_mode", mode)
-        self.settings.endGroup()
-        # 强制同步到磁盘，确保数据持久化
-        self.settings.sync()
+        self.isolation_settings.save_setting("title_mode", mode)
 
     def apply_window_title(self, title_mode: str, custom_title: str, window: QMainWindow, isolation_key: str):
         """应用窗口标题（支持动态和自定义模式）"""
@@ -648,7 +629,7 @@ class FeedbackUI(QMainWindow):
         self.detail_level = detail_level
         
         # 生成三层隔离键
-        self.isolation_key = self._generate_isolation_key(client_name, worker, project_directory)
+        self.isolation_key = IsolationUtils.generate_isolation_key(client_name, worker, project_directory)
         
         # 初始化个性化管理器
         self.personalization_manager = PersonalizationManager(self.isolation_key)
@@ -713,11 +694,12 @@ class FeedbackUI(QMainWindow):
         self.resize(*self.default_size)
 
         self.settings = QSettings("InteractiveFeedbackMCP", "InteractiveFeedbackMCP")
+        
+        # 初始化设置管理器
+        self.isolation_settings = IsolationSettingsManager(self.settings, self.isolation_key)
 
         # 从三层隔离设置中加载窗口置顶设置
-        self.settings.beginGroup(self._get_isolation_settings_group())
-        stay_on_top_enabled = self.settings.value("stay_on_top_enabled", True, type=bool)
-        self.settings.endGroup()
+        stay_on_top_enabled = self.isolation_settings.load_setting("stay_on_top_enabled", True, bool)
 
         if stay_on_top_enabled:
             self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
@@ -737,9 +719,16 @@ class FeedbackUI(QMainWindow):
             self.restoreState(state)
             
         # 从三层隔离设置中加载窗口大小设置
-        self.settings.beginGroup(self._get_isolation_settings_group())
-        custom_width = self.settings.value("custom_width", -1, type=int)
-        custom_height = self.settings.value("custom_height", -1, type=int)
+        window_settings = self.isolation_settings.load_multiple_settings({
+            "custom_width": (-1, int),
+            "custom_height": (-1, int),
+            "use_custom_position": (False, bool),
+            "custom_position_x": (None, int),
+            "custom_position_y": (None, int)
+        })
+        
+        custom_width = window_settings["custom_width"]
+        custom_height = window_settings["custom_height"]
         if custom_width > 0 and custom_height > 0:
             self.resize(custom_width, custom_height)
         else:
@@ -747,14 +736,13 @@ class FeedbackUI(QMainWindow):
             self.resize(*self.default_size)
             
         # 检查是否有用户保存的自定义位置
-        self.use_custom_position = self.settings.value("use_custom_position", False, type=bool)
-        custom_x = self.settings.value("custom_position_x", None, type=int)
-        custom_y = self.settings.value("custom_position_y", None, type=int)
+        self.use_custom_position = window_settings["use_custom_position"]
+        custom_x = window_settings["custom_position_x"]
+        custom_y = window_settings["custom_position_y"]
         self.custom_position = None
         if custom_x is not None and custom_y is not None:
             from PySide6.QtCore import QPoint
             self.custom_position = QPoint(custom_x, custom_y)
-        self.settings.endGroup()
         
         # 立即应用自定义位置（如果有的话），覆盖restoreGeometry的位置设置
         if self.use_custom_position and self.custom_position:
@@ -769,43 +757,39 @@ class FeedbackUI(QMainWindow):
                     self.move(fixed_position)
                     # 更新保存的位置
                     self.custom_position = fixed_position
-                    self.settings.beginGroup(self._get_isolation_settings_group())
-                    self.settings.setValue("custom_position_x", fixed_position.x())
-                    self.settings.setValue("custom_position_y", fixed_position.y())
-                    self.settings.endGroup()
-                    # 强制同步到磁盘，确保数据持久化
-                    self.settings.sync()
+                    self.isolation_settings.save_multiple_settings({
+                        "custom_position_x": fixed_position.x(),
+                        "custom_position_y": fixed_position.y()
+                    })
                 else:
                     # 无法修复，重置为默认位置
                     self.use_custom_position = False
                     self.custom_position = None
-                    self.settings.beginGroup(self._get_isolation_settings_group())
-                    self.settings.setValue("use_custom_position", False)
-                    self.settings.remove("custom_position_x")
-                    self.settings.remove("custom_position_y")
-                    self.settings.endGroup()
-                    # 强制同步到磁盘，确保数据持久化
-                    self.settings.sync()
+                    self.isolation_settings.save_setting("use_custom_position", False)
+                    self.isolation_settings.remove_setting("custom_position_x")
+                    self.isolation_settings.remove_setting("custom_position_y")
             
         # 从三层隔离设置中加载快捷回复设置
-        self.settings.beginGroup(self._get_isolation_settings_group())
-        self.quick_replies = self.settings.value("quick_replies", [], type=list)
+        app_settings = self.isolation_settings.load_multiple_settings({
+            "quick_replies": ([], list),
+            "auto_append_enabled": (True, bool),
+            "auto_append_content": ("继续，请务必完成后，必须call MCP tool `interactive_feedback` 询问我的反馈。", str),
+            "run_command": ("", str),
+            "execute_automatically": (False, bool)
+        })
+        
+        self.quick_replies = app_settings["quick_replies"]
         # 如果没有保存的快捷回复，使用默认值
         if not self.quick_replies:
             self.quick_replies = ["继续", "结束对话","使用MODE: RESEARCH重新开始"]
         
         # 加载末尾自动附加内容设置
-        self.auto_append_enabled = self.settings.value("auto_append_enabled", True, type=bool)
-        self.auto_append_content = self.settings.value("auto_append_content",
-                                                      "继续，请务必完成后，必须call MCP tool `interactive_feedback` 询问我的反馈。",
-                                                      type=str)
-        self.settings.endGroup() # End isolation settings group
+        self.auto_append_enabled = app_settings["auto_append_enabled"]
+        self.auto_append_content = app_settings["auto_append_content"]
         
         # Load settings from three-layer isolation (command, auto-execute, selected tab index)
-        self.settings.beginGroup(self._get_isolation_settings_group())
-        loaded_run_command = self.settings.value("run_command", "", type=str)
-        loaded_execute_auto = self.settings.value("execute_automatically", False, type=bool)
-        self.settings.endGroup() # End isolation settings group
+        loaded_run_command = app_settings["run_command"]
+        loaded_execute_auto = app_settings["execute_automatically"]
         
         self.config: FeedbackConfig = {
             "run_command": loaded_run_command,
@@ -829,32 +813,8 @@ class FeedbackUI(QMainWindow):
         if self.config.get("execute_automatically", False):
             self._run_command()
 
-    def _generate_isolation_key(self, client_name: str, worker: str, project_directory: str) -> str:
-        """生成三层隔离键"""
-        import re
-        import hashlib
-        
-        # Key1: Client name from MCP clientInfo (清理特殊字符)
-        key1 = re.sub(r'[^\w\-]', '_', client_name.lower())
-        
-        # Key2: Worker identifier (清理特殊字符，已验证长度<=40)
-        key2 = re.sub(r'[^\w\-]', '_', worker.lower())
-        
-        # Key3: Project name (路径最后一节，清理特殊字符)
-        project_name = os.path.basename(project_directory.rstrip(os.sep))
-        key3 = re.sub(r'[^\w\-]', '_', project_name.lower())
-        
-        # 组合三层键，限制总长度
-        isolation_key = f"{key1}_{key2}_{key3}"
-        if len(isolation_key) > 100:  # 防止文件系统限制
-            # 使用哈希缩短过长的键
-            hash_suffix = hashlib.md5(isolation_key.encode()).hexdigest()[:8]
-            isolation_key = f"{key1[:20]}_{key2[:20]}_{key3[:20]}_{hash_suffix}"
-        
-        return isolation_key
-    def _get_isolation_settings_group(self) -> str:
-        """获取三层隔离设置组名"""
-        return f"ThreeLayer_{self.isolation_key}"
+    
+    
 
     def _position_window_bottom_right(self):
         """将窗口定位在屏幕右下角或用户自定义位置"""
@@ -869,13 +829,9 @@ class FeedbackUI(QMainWindow):
                 self.use_custom_position = False
                 self.custom_position = None
                 # 清除无效的保存位置
-                self.settings.beginGroup(self._get_isolation_settings_group())
-                self.settings.setValue("use_custom_position", False)
-                self.settings.remove("custom_position_x")
-                self.settings.remove("custom_position_y")
-                self.settings.endGroup()
-                # 强制同步到磁盘，确保数据持久化
-                self.settings.sync()
+                self.isolation_settings.save_setting("use_custom_position", False)
+                self.isolation_settings.remove_setting("custom_position_x")
+                self.isolation_settings.remove_setting("custom_position_y")
             
         # 使用默认的右下角位置
         current_width = self.width()
@@ -1307,10 +1263,8 @@ class FeedbackUI(QMainWindow):
         position_column.addWidget(self.auto_save_position_check)
 
         # 从三层隔离设置中读取自动保存窗口位置的选项
-        self.settings.beginGroup(self._get_isolation_settings_group())
-        auto_save_position = self.settings.value("auto_save_position", True, type=bool)
+        auto_save_position = self.isolation_settings.load_setting("auto_save_position", True, bool)
         self.auto_save_position_check.setChecked(auto_save_position)
-        self.settings.endGroup()
 
         # 连接状态变化信号
         self.auto_save_position_check.stateChanged.connect(self._update_auto_save_position)
@@ -1328,10 +1282,8 @@ class FeedbackUI(QMainWindow):
         
         self.stay_on_top_check = QCheckBox("启动时置顶")
         # 从三层隔离设置中读取置顶选项
-        self.settings.beginGroup(self._get_isolation_settings_group())
-        stay_on_top_enabled = self.settings.value("stay_on_top_enabled", True, type=bool)
+        stay_on_top_enabled = self.isolation_settings.load_setting("stay_on_top_enabled", True, bool)
         self.stay_on_top_check.setChecked(stay_on_top_enabled)
-        self.settings.endGroup()
 
         self.stay_on_top_check.stateChanged.connect(self._update_stay_on_top_setting)
         stay_on_top_column.addWidget(self.stay_on_top_check)
@@ -1373,11 +1325,14 @@ class FeedbackUI(QMainWindow):
         auto_submit_settings_layout = QVBoxLayout(auto_submit_settings_group)
 
         # 从三层隔离设置中读取自动提交设置
-        self.settings.beginGroup(self._get_isolation_settings_group())
-        self.auto_submit_enabled = self.settings.value("auto_submit_enabled", False, type=bool)
-        self.auto_submit_wait_time = self.settings.value("auto_submit_wait_time", 60, type=int)
-        self.auto_fill_first_reply = self.settings.value("auto_fill_first_reply", True, type=bool)
-        self.settings.endGroup()
+        auto_submit_settings = self.isolation_settings.load_multiple_settings({
+            "auto_submit_enabled": (False, bool),
+            "auto_submit_wait_time": (60, int),
+            "auto_fill_first_reply": (True, bool)
+        })
+        self.auto_submit_enabled = auto_submit_settings["auto_submit_enabled"]
+        self.auto_submit_wait_time = auto_submit_settings["auto_submit_wait_time"]
+        self.auto_fill_first_reply = auto_submit_settings["auto_fill_first_reply"]
 
         # 启用自动提交的勾选框
         self.auto_submit_check = QCheckBox("启用自动提交")
@@ -1498,9 +1453,7 @@ class FeedbackUI(QMainWindow):
         self._create_history_tab()
 
         # 从三层隔离设置中加载选项卡索引
-        self.settings.beginGroup(self._get_isolation_settings_group())
-        selected_tab_index = self.settings.value("selectedTabIndex", 0, type=int)
-        self.settings.endGroup()
+        selected_tab_index = self.isolation_settings.load_setting("selectedTabIndex", 0, int)
         self.tab_widget.setCurrentIndex(selected_tab_index)
         
         # 连接选项卡切换信号，保存当前选中的选项卡
@@ -1985,9 +1938,7 @@ AI应用: {conv.client_name}
     def _tab_changed(self, index):
         """处理选项卡切换事件"""
         # 保存当前选中的选项卡索引到三层隔离设置
-        self.settings.beginGroup(self._get_isolation_settings_group())
-        self.settings.setValue("selectedTabIndex", index)
-        self.settings.endGroup()
+        self.isolation_settings.save_setting("selectedTabIndex", index)
         
     def _update_config(self):
         self.config["run_command"] = self.command_entry.text()
@@ -2145,11 +2096,7 @@ AI应用: {conv.client_name}
                 self.quick_reply_combo.addItem(reply)
                 
             # 保存到三层隔离设置
-            self.settings.beginGroup(self._get_isolation_settings_group())
-            self.settings.setValue("quick_replies", self.quick_replies)
-            self.settings.endGroup()
-            # 强制同步到磁盘，确保数据持久化
-            self.settings.sync()
+            self.isolation_settings.save_setting("quick_replies", self.quick_replies)
            
     def _upload_image(self):
         """上传图片"""
@@ -2397,24 +2344,20 @@ AI应用: {conv.client_name}
         
     def _save_config(self):
         # Save run_command and execute_automatically to QSettings under three-layer isolation
-        self.settings.beginGroup(self._get_isolation_settings_group())
-        self.settings.setValue("run_command", self.config["run_command"])
-        self.settings.setValue("execute_automatically", self.config["execute_automatically"])
-        self.settings.endGroup()
-        # 强制同步到磁盘，确保数据持久化
-        self.settings.sync()
+        self.isolation_settings.save_multiple_settings({
+            "run_command": self.config["run_command"],
+            "execute_automatically": self.config["execute_automatically"]
+        })
         
     def _save_window_position(self):
         """保存当前窗口位置到用户设置"""
         # 保存窗口位置到三层隔离设置组
         pos = self.pos()
-        self.settings.beginGroup(self._get_isolation_settings_group())
-        self.settings.setValue("custom_position_x", pos.x())
-        self.settings.setValue("custom_position_y", pos.y())
-        self.settings.setValue("use_custom_position", True)
-        self.settings.endGroup()
-        # 强制同步到磁盘，确保数据持久化
-        self.settings.sync()
+        self.isolation_settings.save_multiple_settings({
+            "custom_position_x": pos.x(),
+            "custom_position_y": pos.y(),
+            "use_custom_position": True
+        })
         
         # 更新内部状态
         self.use_custom_position = True
@@ -2433,40 +2376,34 @@ AI应用: {conv.client_name}
         self.settings.sync()
         
         # Save three-layer isolation settings
-        self.settings.beginGroup(self._get_isolation_settings_group())
-        
-        # 保存当前窗口实际大小
-        self.settings.setValue("custom_width", self.width())
-        self.settings.setValue("custom_height", self.height())
+        close_settings = {
+            "custom_width": self.width(),
+            "custom_height": self.height(),
+            "selectedTabIndex": self.tab_widget.currentIndex(),
+            "run_command": self.config["run_command"],
+            "execute_automatically": self.config["execute_automatically"],
+            "auto_submit_enabled": self.auto_submit_enabled,
+            "auto_submit_wait_time": self.auto_submit_wait_time,
+            "auto_fill_first_reply": self.auto_fill_first_reply
+        }
         
         # 根据设置决定是否自动保存窗口位置
-        auto_save_position = self.settings.value("auto_save_position", True, type=bool)
+        auto_save_position = self.isolation_settings.load_setting("auto_save_position", True, bool)
         if auto_save_position:
             # 自动保存窗口位置
             pos = self.pos()
-            self.settings.setValue("custom_position_x", pos.x())
-            self.settings.setValue("custom_position_y", pos.y())
-            self.settings.setValue("use_custom_position", True)
-
-        # 保存自动提交设置
-        self.settings.setValue("auto_submit_enabled", self.auto_submit_enabled)
-        self.settings.setValue("auto_submit_wait_time", self.auto_submit_wait_time)
-        self.settings.setValue("auto_fill_first_reply", self.auto_fill_first_reply)
+            close_settings.update({
+                "custom_position_x": pos.x(),
+                "custom_position_y": pos.y(),
+                "use_custom_position": True
+            })
 
         # 保存窗口置顶设置
         if hasattr(self, 'stay_on_top_check'):
-            self.settings.setValue("stay_on_top_enabled", self.stay_on_top_check.isChecked())
-
-        # 保存当前选中的选项卡索引
-        self.settings.setValue("selectedTabIndex", self.tab_widget.currentIndex())
+            close_settings["stay_on_top_enabled"] = self.stay_on_top_check.isChecked()
         
-        # 保存项目特定设置（run_command, execute_automatically）
-        self.settings.setValue("run_command", self.config["run_command"])
-        self.settings.setValue("execute_automatically", self.config["execute_automatically"])
-
-        self.settings.endGroup()
-        # 强制同步到磁盘，确保数据持久化
-        self.settings.sync()
+        # 批量保存所有设置
+        self.isolation_settings.save_multiple_settings(close_settings)
 
         if self.process:
             kill_tree(self.process)
@@ -2497,11 +2434,7 @@ AI应用: {conv.client_name}
     def _update_auto_save_position(self, state):
         """更新自动保存窗口位置的设置"""
         is_checked = (state == Qt.Checked)
-        self.settings.beginGroup(self._get_isolation_settings_group())
-        self.settings.setValue("auto_save_position", is_checked)
-        self.settings.endGroup()
-        # 强制同步到磁盘，确保数据持久化
-        self.settings.sync()
+        self.isolation_settings.save_setting("auto_save_position", is_checked)
 
         # 显示状态更改提示
         status_message = "已启用自动保存窗口位置" if is_checked else "已禁用自动保存窗口位置"
@@ -2531,13 +2464,11 @@ AI应用: {conv.client_name}
             self.auto_submit_time_input.setText("60")
 
         # 保存设置到三层隔离
-        self.settings.beginGroup(self._get_isolation_settings_group())
-        self.settings.setValue("auto_submit_enabled", self.auto_submit_enabled)
-        self.settings.setValue("auto_submit_wait_time", self.auto_submit_wait_time)
-        self.settings.setValue("auto_fill_first_reply", self.auto_fill_first_reply)
-        self.settings.endGroup()
-        # 强制同步到磁盘，确保数据持久化
-        self.settings.sync()
+        self.isolation_settings.save_multiple_settings({
+            "auto_submit_enabled": self.auto_submit_enabled,
+            "auto_submit_wait_time": self.auto_submit_wait_time,
+            "auto_fill_first_reply": self.auto_fill_first_reply
+        })
 
     def _update_auto_append_settings(self):
         """更新末尾自动附加内容设置"""
@@ -2545,13 +2476,10 @@ AI应用: {conv.client_name}
         self.auto_append_content = self.auto_append_input.text()
         
         # 保存到三层隔离设置
-        self.settings.beginGroup(self._get_isolation_settings_group())
-        self.settings.setValue("auto_append_enabled", self.auto_append_enabled)
-        self.settings.setValue("auto_append_content", self.auto_append_content)
-        self.settings.endGroup()
-        
-        # 强制同步到磁盘，确保数据持久化
-        self.settings.sync()
+        self.isolation_settings.save_multiple_settings({
+            "auto_append_enabled": self.auto_append_enabled,
+            "auto_append_content": self.auto_append_content
+        })
 
     def _start_auto_submit_countdown(self):
         """启动自动提交倒计时"""
@@ -2618,11 +2546,7 @@ AI应用: {conv.client_name}
     def _update_stay_on_top_setting(self, state):
         """更新窗口置顶设置"""
         is_checked = (state == Qt.Checked)
-        self.settings.beginGroup(self._get_isolation_settings_group())
-        self.settings.setValue("stay_on_top_enabled", is_checked)
-        self.settings.endGroup()
-        # 强制同步到磁盘，确保数据持久化
-        self.settings.sync()
+        self.isolation_settings.save_setting("stay_on_top_enabled", is_checked)
 
         # 显示状态更改提示
         status_message = "已启用启动时窗口置顶" if is_checked else "已禁用启动时窗口置顶"
@@ -2651,13 +2575,9 @@ AI应用: {conv.client_name}
         self.custom_position = None
         
         # 更新设置
-        self.settings.beginGroup(self._get_isolation_settings_group())
-        self.settings.setValue("use_custom_position", False)
-        self.settings.remove("custom_position_x")
-        self.settings.remove("custom_position_y")
-        self.settings.endGroup()
-        # 强制同步到磁盘，确保数据持久化
-        self.settings.sync()
+        self.isolation_settings.save_setting("use_custom_position", False)
+        self.isolation_settings.remove_setting("custom_position_x")
+        self.isolation_settings.remove_setting("custom_position_y")
         
         # 重新定位窗口
         self._position_window_bottom_right()
@@ -2809,10 +2729,8 @@ AI应用: {conv.client_name}
         super().moveEvent(event)
         
         # 检查是否启用了自动保存位置功能
-        if hasattr(self, 'settings') and hasattr(self, '_get_isolation_settings_group'):
-            self.settings.beginGroup(self._get_isolation_settings_group())
-            auto_save_position = self.settings.value("auto_save_position", True, type=bool)
-            self.settings.endGroup()
+        if hasattr(self, 'isolation_settings'):
+            auto_save_position = self.isolation_settings.load_setting("auto_save_position", True, bool)
             
             if auto_save_position:
                 # 使用计时器延迟保存，避免拖动过程中频繁保存
@@ -2828,14 +2746,11 @@ AI应用: {conv.client_name}
         """从移动事件中保存窗口位置"""
         try:
             pos = self.pos()
-            self.settings.beginGroup(self._get_isolation_settings_group())
-            self.settings.setValue("custom_position_x", pos.x())
-            self.settings.setValue("custom_position_y", pos.y())
-            self.settings.setValue("use_custom_position", True)
-            self.settings.endGroup()
-            
-            # 强制同步设置到磁盘
-            self.settings.sync()
+            self.isolation_settings.save_multiple_settings({
+                "custom_position_x": pos.x(),
+                "custom_position_y": pos.y(),
+                "use_custom_position": True
+            })
             
             # 更新内部状态
             self.use_custom_position = True
@@ -2875,12 +2790,7 @@ AI应用: {conv.client_name}
 
         return self.feedback_result
 
-def get_project_settings_group(project_dir: str) -> str:
-    # Create a safe, unique group name from the project directory path
-    # Using only the last component + hash of full path to keep it somewhat readable but unique
-    basename = os.path.basename(os.path.normpath(project_dir))
-    full_hash = hashlib.md5(project_dir.encode('utf-8')).hexdigest()[:8]
-    return f"{basename}_{full_hash}"
+
 
 def feedback_ui(project_directory: str, prompt: str, output_file: Optional[str] = None, worker: str = "default", client_name: str = "unknown-client", detail_level: str = None) -> Optional[FeedbackResult]:
     # If detail_level is not provided, get it from environment variable
