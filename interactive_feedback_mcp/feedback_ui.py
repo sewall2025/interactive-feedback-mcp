@@ -1491,7 +1491,7 @@ class FeedbackUI(QMainWindow):
         version_label.setStyleSheet("""
             QLabel {
                 color: #666666;
-                font-size: 12px;
+                font-size: 16px;
                 font-weight: normal;
                 padding: 5px 10px;
                 background: transparent;
