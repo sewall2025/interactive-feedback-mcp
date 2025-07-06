@@ -4,6 +4,7 @@
 import os
 import sys
 import json
+from importlib import metadata
 import psutil
 import argparse
 import subprocess
@@ -35,6 +36,25 @@ from PySide6.QtCore import Qt, Signal, QObject, QTimer, QSettings, QPoint, QSize
 from PySide6.QtGui import QTextCursor, QIcon, QKeyEvent, QFont, QFontDatabase, QPalette, QColor, QPixmap, QImage, QClipboard, QShortcut, QKeySequence
 
 # 12个精选的窗口边框颜色
+def get_app_version() -> str:
+    """动态获取应用程序版本号"""
+    try:
+        # 主要方法：从已安装包元数据读取
+        return metadata.version("interactive-feedback-mcp")
+    except metadata.PackageNotFoundError:
+        # 备用方法：解析pyproject.toml（开发环境）
+        try:
+            import tomllib  # Python 3.11+
+            pyproject_path = os.path.join(os.path.dirname(__file__), "..", "pyproject.toml")
+            if os.path.exists(pyproject_path):
+                with open(pyproject_path, "rb") as f:
+                    data = tomllib.load(f)
+                return data["project"]["version"]
+        except Exception:
+            pass
+    
+    # 最终备用值
+    return "1.2.5"
 BORDER_COLORS = [
     # 经典色系（第一行）
     "#ffffff",  # 默认白色（实际显示为#e0e0e0）
@@ -1464,6 +1484,23 @@ class FeedbackUI(QMainWindow):
         
         # 连接选项卡切换信号，保存当前选中的选项卡
         self.tab_widget.currentChanged.connect(self._tab_changed)
+        
+        # 在标签页右上角添加版本号
+        app_version = get_app_version()
+        version_label = QLabel(f"v{app_version}")
+        version_label.setStyleSheet("""
+            QLabel {
+                color: #666666;
+                font-size: 12px;
+                font-weight: normal;
+                padding: 5px 10px;
+                background: transparent;
+            }
+        """)
+        version_label.setAlignment(Qt.AlignCenter)
+        
+        # 使用QTabWidget的corner widget功能
+        self.tab_widget.setCornerWidget(version_label, Qt.TopRightCorner)
         
         # 将选项卡控件添加到主布局
         layout.addWidget(self.tab_widget)
