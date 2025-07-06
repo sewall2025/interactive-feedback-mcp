@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QCheckBox, QTextEdit, QGroupBox, QDialog, QListWidget, QDialogButtonBox, QComboBox, QFileDialog,
     QScrollArea, QFrame, QGridLayout, QMessageBox, QTabWidget, QSizePolicy
 )
-from PySide6.QtCore import Qt, Signal, QObject, QTimer, QSettings, QPoint, QSize, QByteArray, QBuffer, QIODevice
+from PySide6.QtCore import Qt, Signal, QObject, QTimer, QSettings, QPoint, QSize, QByteArray, QBuffer, QIODevice, QEvent
 from PySide6.QtGui import QTextCursor, QIcon, QKeyEvent, QFont, QFontDatabase, QPalette, QColor, QPixmap, QImage, QClipboard, QShortcut, QKeySequence
 
 # 12个精选的窗口边框颜色
@@ -203,7 +203,7 @@ class FeedbackTextEdit(QTextEdit):
         if self.feedback_ui:
             # 只要用户开始编辑文本（无论是输入还是删除），都停止自动提交
             # 这样可以避免用户正在编辑时突然自动提交的情况
-            self.feedback_ui._stop_auto_submit_countdown()
+            self.feedback_ui._cancel_auto_submit()
 
     def keyPressEvent(self, event: QKeyEvent):
         # 检查是否按下Ctrl+Enter或Ctrl+Return
@@ -229,13 +229,13 @@ class FeedbackTextEdit(QTextEdit):
         """当文本框获得焦点时停止自动提交倒计时"""
         super().focusInEvent(event)
         if self.feedback_ui:
-            self.feedback_ui._stop_auto_submit_countdown()
+            self.feedback_ui._cancel_auto_submit()
 
     def mousePressEvent(self, event):
         """当鼠标点击文本框时停止自动提交倒计时"""
         super().mousePressEvent(event)
         if self.feedback_ui:
-            self.feedback_ui._stop_auto_submit_countdown()
+            self.feedback_ui._cancel_auto_submit()
     
     def insertFromMimeData(self, source):
         """重写粘贴方法，支持粘贴图片"""
@@ -644,6 +644,9 @@ class FeedbackUI(QMainWindow):
         self.process_monitor = ProcessMonitor(self.timer_manager)
         self.debounce_helper = DebounceHelper(self.timer_manager)
         self.auto_submit_timer = AutoSubmitTimer(self.timer_manager)
+
+        # 设置统一的自动提交取消监听
+        self._setup_auto_submit_cancellation()
 
         # 设置应用程序使用Fusion样式，这是一个跨平台的样式，最接近原生外观
         QApplication.setStyle("Fusion")
@@ -2505,6 +2508,61 @@ AI应用: {conv.client_name}
         # 恢复原始按钮文本
         if hasattr(self, 'submit_button') and self.original_submit_text:
             self.submit_button.setText(self.original_submit_text)
+
+    def _cancel_auto_submit(self):
+        """统一的取消自动提交方法"""
+        self._stop_auto_submit_countdown()
+
+    def _setup_auto_submit_cancellation(self):
+        """设置自动提交取消的统一监听"""
+        # 延迟设置，确保UI完全初始化后再设置监听
+        QTimer.singleShot(100, self._setup_auto_submit_cancellation_delayed)
+
+    def _setup_auto_submit_cancellation_delayed(self):
+        """延迟设置自动提交取消监听"""
+        try:
+            # 安装事件过滤器到主窗口
+            self.installEventFilter(self)
+
+            # 文本框多信号监听（如果文本框已创建）
+            if hasattr(self, 'feedback_text') and self.feedback_text:
+                text_edit = self.feedback_text
+                text_edit.cursorPositionChanged.connect(self._cancel_auto_submit)
+                text_edit.selectionChanged.connect(self._cancel_auto_submit)
+
+            # 所有按钮点击
+            for button in self.findChildren(QPushButton):
+                if button and not button.signalsBlocked():
+                    button.clicked.connect(self._cancel_auto_submit)
+
+            # 所有下拉框变化
+            for combo in self.findChildren(QComboBox):
+                if combo and not combo.signalsBlocked():
+                    combo.currentTextChanged.connect(self._cancel_auto_submit)
+
+            # 所有输入框变化
+            for line_edit in self.findChildren(QLineEdit):
+                if line_edit and not line_edit.signalsBlocked():
+                    line_edit.textChanged.connect(self._cancel_auto_submit)
+
+        except Exception as e:
+            # 静默处理错误，避免影响UI初始化
+            print(f"Warning: Failed to setup auto-submit cancellation: {e}")
+
+    def eventFilter(self, obj, event):
+        """统一事件过滤器 - 捕获用户交互事件"""
+        try:
+            if event.type() in [
+                QEvent.MouseButtonPress,    # 鼠标点击
+                QEvent.KeyPress,           # 键盘按键
+                QEvent.InputMethod,        # 输入法事件
+                QEvent.FocusIn            # 获得焦点
+            ]:
+                self._cancel_auto_submit()
+        except Exception as e:
+            # 静默处理错误，避免影响事件处理
+            pass
+        return super().eventFilter(obj, event)
 
     def _update_submit_button_text(self, remaining_time):
         """更新提交按钮文本"""
