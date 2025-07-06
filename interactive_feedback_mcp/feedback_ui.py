@@ -2901,7 +2901,7 @@ if __name__ == "__main__":
     parser.add_argument("--output-file", help="Path to save the feedback result as JSON")
     parser.add_argument("--worker", default="default", help="Worker environment identifier (max 40 chars)")
     parser.add_argument("--client-name", default="unknown-client", help="MCP client name for isolation")
-    parser.add_argument("--detail-level", default=get_default_detail_level(), choices=["brief", "detailed", "comprehensive"], help="Level of detail for the summary")
+    parser.add_argument("--detail-level", default=None, choices=["brief", "detailed", "comprehensive"], help="Level of detail for the summary")
     args = parser.parse_args()
 
     result = feedback_ui(args.project_directory, args.prompt, args.output_file, args.worker, args.client_name, args.detail_level)
