@@ -18,23 +18,46 @@ from pydantic import Field
 # The log_level is necessary for Cline to work: https://github.com/jlowin/fastmcp/issues/81
 mcp = FastMCP("Interactive Feedback MCP", log_level="ERROR")
 
+# 缓存环境变量值，确保在整个运行过程中保持一致
+_cached_detail_level = None
+
 def get_default_detail_level() -> str:
-    """Get the default detail level from environment variable AI_summary_detail_level"""
+    """Get the default detail level from environment variable AI_summary_detail_level
+
+    使用缓存机制确保在整个运行过程中 detail_level 保持一致，
+    避免环境变量在运行时被修改导致的值变化问题。
+    """
+    global _cached_detail_level
+
+    # 如果已经缓存了值，直接返回
+    if _cached_detail_level is not None:
+        return _cached_detail_level
+
+    # 首次读取环境变量并缓存
     detail_level = os.environ.get('AI_summary_detail_level', 'brief')
-    
+
     # Validate the detail level value
     valid_levels = ['brief', 'detailed', 'comprehensive']
     if detail_level not in valid_levels:
         # If invalid value, fallback to default
         detail_level = 'brief'
-    
+
+    # 缓存有效值
+    _cached_detail_level = detail_level
     return detail_level
+
+def reset_detail_level_cache():
+    """重置 detail_level 缓存，用于测试或特殊情况"""
+    global _cached_detail_level
+    _cached_detail_level = None
 
 def launch_feedback_ui(project_directory: str, summary: str, worker: str = "default", client_name: str = "unknown-client", detail_level: str = None) -> dict[str, str]:
     # If detail_level is not provided, get it from environment variable
     if detail_level is None:
         detail_level = get_default_detail_level()
-    
+
+
+
     # Create a temporary file for the feedback result
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
         output_file = tmp.name
@@ -56,6 +79,9 @@ def launch_feedback_ui(project_directory: str, summary: str, worker: str = "defa
             "--client-name", client_name,
             "--detail-level", detail_level
         ]
+        # 确保子进程继承环境变量，特别是 AI_summary_detail_level
+        env = os.environ.copy()
+
         result = subprocess.run(
             args,
             check=False,
@@ -63,7 +89,8 @@ def launch_feedback_ui(project_directory: str, summary: str, worker: str = "defa
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL,
-            close_fds=True
+            close_fds=True,
+            env=env  # 显式传递环境变量
         )
         if result.returncode != 0:
             raise Exception(f"Failed to launch feedback UI: {result.returncode}")

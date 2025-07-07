@@ -639,11 +639,13 @@ class TitleCustomizationWidget(QWidget):
 class FeedbackUI(QMainWindow):
     def __init__(self, project_directory: str, prompt: str, worker: str = "default", client_name: str = "unknown-client", detail_level: str = None):
         super().__init__()
-        
+
         # If detail_level is not provided, get it from environment variable
         if detail_level is None:
             detail_level = get_default_detail_level()
-        
+
+
+
         self.project_directory = project_directory
         self.prompt = prompt
         self.worker = worker
@@ -1064,6 +1066,7 @@ class FeedbackUI(QMainWindow):
             "detailed": "详细模式 - 提供多行描述，包含主要变更点",
             "comprehensive": "全面模式 - 提供完整描述，包含背景和技术细节"
         }
+
         self.detail_level_label = QLabel(f"📝 {detail_level_text.get(self.detail_level, '未知模式')}")
         self.detail_level_label.setStyleSheet("color: #666; font-size: 11px; font-style: italic;")
         feedback_layout.addWidget(self.detail_level_label)
@@ -2875,12 +2878,14 @@ def feedback_ui(project_directory: str, prompt: str, output_file: Optional[str] 
     # If detail_level is not provided, get it from environment variable
     if detail_level is None:
         detail_level = get_default_detail_level()
-    
+
+
+
     app = QApplication.instance() or QApplication()
-    
+
     # 在提示文本中添加AI助手信息
     ai_prompt = f"AI助手: {prompt}"
-    
+
     ui = FeedbackUI(project_directory, ai_prompt, worker=worker, client_name=client_name, detail_level=detail_level)
     result = ui.run()
 
