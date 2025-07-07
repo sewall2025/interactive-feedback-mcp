@@ -54,7 +54,7 @@ def get_app_version() -> str:
             pass
     
     # 最终备用值
-    return "1.2.5"
+    return "1.2.6.1"
 BORDER_COLORS = [
     # 经典色系（第一行）
     "#ffffff",  # 默认白色（实际显示为#e0e0e0）
