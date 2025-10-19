@@ -45,6 +45,14 @@ uv run interactive-feedback-mcp
 
 # 或者直接运行 Python 脚本
 uv run python interactive_feedback_mcp/server.py
+
+# 使用 Python 原生虚拟环境（env 名称为 interactive）
+python scripts/run_interactive_env.py --install-only  # 创建/更新 virtualenv interactive
+python scripts/run_interactive_env.py                 # 启动 MCP 服务器
+
+# 也可以手动激活 virtualenv 后运行
+# source interactive/bin/activate  # Windows 使用 interactive\\Scripts\\activate
+# python interactive_feedback_mcp/server.py
 ```
 
 ### 参数说明
