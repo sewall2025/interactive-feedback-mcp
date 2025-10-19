@@ -111,7 +111,7 @@ def first_line(text: str) -> str:
 @mcp.tool()
 def interactive_feedback(
     project_directory: Annotated[str, Field(description="Full path to the project directory")],
-    summary: Annotated[str, Field(description="Short, one-line summary of the changes")],
+    summary: Annotated[str, Field(description="Short summary of the changes.")],
     ctx: Context,
     detail_level: Annotated[
         Literal["brief", "detailed", "comprehensive"], 
@@ -143,9 +143,11 @@ def interactive_feedback(
         # 如果获取失败，使用默认值
         pass
     
+    sanitized_project_directory = first_line(project_directory)
+
     result_dict = launch_feedback_ui(
-        first_line(project_directory), 
-        first_line(summary),
+        sanitized_project_directory, 
+        summary,
         worker=worker,
         client_name=client_name,
         detail_level=detail_level

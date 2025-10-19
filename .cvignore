@@ -1,0 +1,6 @@
+*.json
+*.png
+*.md
+*.doc
+*.txt
+samples/
