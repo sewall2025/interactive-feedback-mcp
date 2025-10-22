@@ -1055,10 +1055,35 @@ class FeedbackUI(QMainWindow):
         self.feedback_group = QGroupBox()  # 不再需要标题，因为选项卡有标签
         feedback_layout = QVBoxLayout(self.feedback_group)
 
-        # Short description label (from self.prompt)
-        self.description_label = QLabel(self.prompt)
-        self.description_label.setWordWrap(True)
-        feedback_layout.addWidget(self.description_label)
+        # Short description viewer (from self.prompt)
+        self.summary_text = QTextEdit()
+        self.summary_text.setReadOnly(True)
+        self.summary_text.setPlainText(self.prompt)
+        self.summary_text.setLineWrapMode(QTextEdit.WidgetWidth)
+        self.summary_text.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.summary_text.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.summary_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.summary_text.setTextInteractionFlags(
+            Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard
+        )
+        self.summary_text.setFocusPolicy(Qt.StrongFocus)
+
+        summary_font_metrics = self.summary_text.fontMetrics()
+        summary_line_height = summary_font_metrics.lineSpacing()
+        summary_frame = self.summary_text.frameWidth() * 2
+        summary_margins = (
+            self.summary_text.contentsMargins().top()
+            + self.summary_text.contentsMargins().bottom()
+            + int(self.summary_text.document().documentMargin()) * 2
+        )
+        visible_summary_lines = 25
+        summary_max_height = summary_line_height * visible_summary_lines + summary_frame + summary_margins
+        min_summary_lines = min(visible_summary_lines, 8)
+        summary_min_height = summary_line_height * min_summary_lines + summary_frame + summary_margins
+        self.summary_text.setMaximumHeight(summary_max_height)
+        self.summary_text.setMinimumHeight(summary_min_height)
+
+        feedback_layout.addWidget(self.summary_text)
         
         # Detail level information
         detail_level_text = {
@@ -1246,7 +1271,10 @@ class FeedbackUI(QMainWindow):
         feedback_layout.addLayout(submit_layout)
 
         # 设置feedback_group的最小高度
-        self.feedback_group.setMinimumHeight(self.description_label.sizeHint().height() + 
+        summary_height = self.summary_text.maximumHeight()
+        if summary_height <= 0 or summary_height >= 16777215:
+            summary_height = self.summary_text.sizeHint().height()
+        self.feedback_group.setMinimumHeight(summary_height + 
                                             self.feedback_text.minimumHeight() + 
                                             start_button.sizeHint().height() + 
                                             edit_replies_button.sizeHint().height() + 
