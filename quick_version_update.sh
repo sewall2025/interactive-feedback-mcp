@@ -59,9 +59,11 @@ echo
 
 # 第二步：验证版本号一致性
 print_info "第二步：验证版本号一致性"
-if ./version_check.sh > /dev/null 2>&1; then
+if output="$(./version_check.sh 2>&1)"; then
+    printf '%s\n' "$output"
     print_success "版本号一致性验证通过"
 else
+    printf '%s\n' "$output"
     print_error "版本号一致性验证失败"
     # 恢复备份
     mv pyproject.toml.bak pyproject.toml
