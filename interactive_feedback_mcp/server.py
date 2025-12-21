@@ -8,7 +8,6 @@ import tempfile
 import subprocess
 from PIL import Image as PILImage
 
-from fastmcp import Image
 from typing import List, Union, Literal
 from typing import Annotated, Dict
 
