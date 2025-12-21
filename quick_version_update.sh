@@ -101,7 +101,7 @@ echo
 
 # 第五步：验证运行时版本号
 print_info "第五步：验证运行时版本号"
-RUNTIME_VERSION=$(python -c "
+RUNTIME_VERSION=$(python3 -c "
 import sys
 sys.path.insert(0, 'interactive_feedback_mcp')
 from feedback_ui import get_app_version

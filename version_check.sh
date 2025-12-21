@@ -53,25 +53,12 @@ get_backup_version() {
 }
 
 get_package_version() {
-    python -c "
+    python3 -c "
 try:
     from importlib import metadata
     print(metadata.version('interactive-feedback-mcp'))
 except Exception as e:
     print('未安装')
-" 2>/dev/null
-}
-
-get_runtime_version() {
-    python -c "
-import sys
-import os
-sys.path.insert(0, 'interactive_feedback_mcp')
-try:
-    from feedback_ui import get_app_version
-    print(get_app_version())
-except Exception as e:
-    print(f'错误: {e}')
 " 2>/dev/null
 }
 
@@ -85,14 +72,12 @@ check_versions() {
     UVLOCK_VERSION=$(get_uvlock_version)
     BACKUP_VERSION=$(get_backup_version)
     PACKAGE_VERSION=$(get_package_version)
-    RUNTIME_VERSION=$(get_runtime_version)
 
     # 显示版本号
     echo "📄 pyproject.toml:     $PYPROJECT_VERSION"
     echo "🔒 uv.lock:           $UVLOCK_VERSION"
     echo "💾 备用版本号:         $BACKUP_VERSION"
     echo "📦 包元数据:          $PACKAGE_VERSION"
-    echo "🏃 运行时版本:         $RUNTIME_VERSION"
     echo
 
     # 检查一致性
@@ -112,10 +97,6 @@ check_versions() {
     if [ "$PACKAGE_VERSION" != "未安装" ] && [ "$PYPROJECT_VERSION" != "$PACKAGE_VERSION" ]; then
         print_warning "包元数据版本号过时，需要重新安装包"
         print_info "运行: uv pip install -e ."
-    fi
-
-    if [ "$RUNTIME_VERSION" != "$PYPROJECT_VERSION" ]; then
-        print_warning "运行时版本号与配置不一致"
     fi
 
     if [ "$all_consistent" = true ]; then
