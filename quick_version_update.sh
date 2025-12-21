@@ -93,31 +93,8 @@ git push origin main
 print_success "版本号更新已推送到远程"
 echo
 
-# 第四步：重新安装包
-print_info "第四步：重新安装包"
-uv pip install -e .
-print_success "包重新安装完成"
-echo
-
-# 第五步：验证运行时版本号
-print_info "第五步：验证运行时版本号"
-RUNTIME_VERSION=$(python3 -c "
-import sys
-sys.path.insert(0, 'interactive_feedback_mcp')
-from feedback_ui import get_app_version
-print(get_app_version())
-")
-
-if [ "$RUNTIME_VERSION" = "$NEW_VERSION" ]; then
-    print_success "运行时版本号验证通过: $RUNTIME_VERSION"
-else
-    print_error "运行时版本号不匹配: 期望 $NEW_VERSION，实际 $RUNTIME_VERSION"
-    exit 1
-fi
-echo
-
-# 第六步：创建和推送 Git Tag
-print_info "第六步：创建和推送 Git Tag"
+# 第四步：创建和推送 Git Tag
+print_info "第四步：创建和推送 Git Tag"
 
 TAG_MSG="v$NEW_VERSION - $VERSION_DESC
 
@@ -151,8 +128,6 @@ echo "  ✅ 更新了 pyproject.toml"
 echo "  ✅ 更新了 uv.lock"
 echo "  ✅ 更新了备用版本号"
 echo "  ✅ 提交并推送了代码"
-echo "  ✅ 重新安装了包"
-echo "  ✅ 验证了运行时版本号"
 echo "  ✅ 创建并推送了 Git tag"
 echo
 
