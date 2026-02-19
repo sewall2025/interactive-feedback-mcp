@@ -15,7 +15,7 @@ from fastmcp import FastMCP, Context
 from pydantic import Field
 
 # The log_level is necessary for Cline to work: https://github.com/jlowin/fastmcp/issues/81
-mcp = FastMCP("Interactive Feedback MCP", log_level="ERROR")
+mcp = FastMCP("Interactive Feedback MCP")
 
 # 缓存环境变量值，确保在整个运行过程中保持一致
 _cached_detail_level = None
