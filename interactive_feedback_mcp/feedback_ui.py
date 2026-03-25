@@ -11,6 +11,7 @@ import subprocess
 import threading
 import hashlib
 import uuid
+import tempfile
 from datetime import datetime
 from typing import Optional, TypedDict, List
 
@@ -98,10 +99,20 @@ def generate_random_filename(extension: str = "jpg") -> str:
 
 def ensure_temp_directory(base_dir: str) -> str:
     """确保temp目录存在，返回temp目录的完整路径"""
-    temp_dir = os.path.join(base_dir, "temp")
-    if not os.path.exists(temp_dir):
-        os.makedirs(temp_dir)
-    return temp_dir
+    primary_dir = os.path.join(base_dir, "temp")
+    fallback_dir = os.path.join(tempfile.gettempdir(), "interactive_feedback_mcp_temp")
+
+    for path in (primary_dir, fallback_dir):
+        try:
+            os.makedirs(path, exist_ok=True)
+            if os.access(path, os.W_OK | os.X_OK):
+                return path
+        except (PermissionError, OSError):
+            continue
+
+    raise PermissionError(
+        f"Cannot create writable temp directory in '{primary_dir}' or '{fallback_dir}'"
+    )
 
 def kill_tree(process: subprocess.Popen):
     killed: list[psutil.Process] = []

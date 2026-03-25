@@ -50,6 +50,27 @@ def reset_detail_level_cache():
     global _cached_detail_level
     _cached_detail_level = None
 
+def resolve_project_directory(project_directory: str) -> str:
+    """Resolve and validate project_directory with cwd fallback."""
+    candidate = os.path.abspath(os.path.expanduser(first_line(project_directory or "")))
+    cwd = os.getcwd()
+
+    if candidate and os.path.isdir(candidate) and os.access(candidate, os.R_OK | os.X_OK):
+        return candidate
+
+    if os.path.isdir(cwd) and os.access(cwd, os.R_OK | os.X_OK):
+        return cwd
+
+    raise ValueError(
+        f"Invalid project_directory '{candidate}' and cwd fallback '{cwd}' is unavailable"
+    )
+
+def _snippet(text: str, limit: int = 400) -> str:
+    if not text:
+        return "<empty>"
+    clean = " ".join(text.strip().split())
+    return clean[:limit] + ("..." if len(clean) > limit else "")
+
 def launch_feedback_ui(project_directory: str, summary: str, worker: str = "default", client_name: str = "unknown-client", detail_level: str = None) -> dict[str, str]:
     # If detail_level is not provided, get it from environment variable
     if detail_level is None:
@@ -62,6 +83,8 @@ def launch_feedback_ui(project_directory: str, summary: str, worker: str = "defa
         output_file = tmp.name
 
     try:
+        resolved_project_directory = resolve_project_directory(project_directory)
+
         # Get the path to feedback_ui.py relative to this script
         script_dir = os.path.dirname(os.path.abspath(__file__))
         feedback_ui_path = os.path.join(script_dir, "feedback_ui.py")
@@ -71,7 +94,7 @@ def launch_feedback_ui(project_directory: str, summary: str, worker: str = "defa
             sys.executable,
             "-u",
             feedback_ui_path,
-            "--project-directory", project_directory,
+            "--project-directory", resolved_project_directory,
             "--prompt", summary,
             "--output-file", output_file,
             "--worker", worker,
@@ -85,16 +108,26 @@ def launch_feedback_ui(project_directory: str, summary: str, worker: str = "defa
             args,
             check=False,
             shell=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
             stdin=subprocess.DEVNULL,
             close_fds=True,
             env=env  # 显式传递环境变量
         )
         if result.returncode != 0:
-            raise Exception(f"Failed to launch feedback UI: {result.returncode}")
+            raise RuntimeError(
+                "Failed to launch feedback UI "
+                f"(exit={result.returncode}, project_directory={resolved_project_directory}). "
+                f"stdout={_snippet(result.stdout)}; stderr={_snippet(result.stderr)}"
+            )
 
         # Read the result from the temporary file
+        if not os.path.exists(output_file):
+            raise RuntimeError(
+                "Feedback UI exited without writing output file. "
+                f"stdout={_snippet(result.stdout)}; stderr={_snippet(result.stderr)}"
+            )
         with open(output_file, 'r') as f:
             result = json.load(f)
         os.unlink(output_file)
